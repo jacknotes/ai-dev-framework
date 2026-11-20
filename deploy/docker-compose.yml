@@ -1,0 +1,127 @@
+# 隔离测试环境：Docker Compose 编排
+
+# 用途：为 AI 智能体提供"纯闭环、一次性、可销毁"的隔离测试环境。
+# 设计原则：
+#   1. 与生产环境完全隔离（独立网络、独立凭证、独立数据）。
+#   2. 所有服务在受限容器中运行，限制资源，防止恶意行为。
+#   3. 提供 Mock 服务替代外部依赖（支付/短信/第三方 API）。
+#   4. 用完即销毁：docker compose down -v 清空全部数据。
+
+name: ai-dev-sandbox
+
+# 独立网络，与宿主生产网络隔离
+networks:
+  sandbox:
+    driver: bridge
+    internal: true        # 内部网络，默认不访问外网（需要外网时由出口代理单独放行）
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24   # 独立网段
+
+services:
+  # ---------- 前端（staging） ----------
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ../frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    networks: [sandbox]
+    # 资源限制：防止失控
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    # 安全加固
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /app/node_modules/.cache]
+    # 无生产凭证，只注入测试环境变量
+    environment:
+      - NODE_ENV=test
+      - VITE_API_BASE=http://backend:8000
+
+  # ---------- 后端（staging） ----------
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.backend
+    networks: [sandbox]
+    depends_on: [db, mock-server]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      - ENV=staging
+      - DB_HOST=db
+      - DB_PASSWORD=${TEST_DB_PASSWORD:-test_only_password}   # 仅测试凭证
+      - PAYMENT_API_BASE=http://mock-server:8080             # 外部依赖指向 Mock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- 数据库（测试专用，合成数据） ----------
+  db:
+    image: postgres:16-alpine
+    networks: [sandbox]
+    environment:
+      - POSTGRES_DB=sandbox_test
+      - POSTGRES_USER=test_user
+      - POSTGRES_PASSWORD=${TEST_DB_PASSWORD:-test_only_password}
+    tmpfs: [/var/lib/postgresql/data]   # 数据存内存，重启即清空，不落盘
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ---------- Mock 服务（替代外部依赖） ----------
+  mock-server:
+    image: wiremock/wiremock:3-alpine
+    networks: [sandbox]
+    volumes:
+      - ./mocks:/home/wiremock/mappings   # 契约 mock 配置
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ---------- 测试执行器（QA/安全智能体在此容器内跑测试） ----------
+  test-runner:
+    image: mcr.microsoft.com/playwright:v1.44-jammy   # 内置浏览器，做 UI/兼容测试
+    working_dir: /tests
+    volumes:
+      - ../tests:/tests
+    networks: [sandbox]
+    command: sh -c "sleep infinity"    # 由智能体进入执行测试
+    depends_on: [frontend, backend]
+    environment:
+      - TEST_BASE_URL=http://frontend:3000
+      - API_BASE_URL=http://backend:8000
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    security_opt: [no-new-privileges:true]
+
+  # ---------- 安全扫描器（可选，按需启动） ----------
+  zap:
+    image: zaproxy/zap-stable
+    networks: [sandbox]
+    command: zap.sh -daemon -host 0.0.0.0 -port 8090
+    depends_on: [frontend, backend]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G

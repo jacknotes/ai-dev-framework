@@ -1,0 +1,48 @@
+# Vue + Go 模板 — 隔离环境编排
+# 用途：一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证。
+
+name: vue-go-sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      - "8000:8000"          # 仅本地调试开放；纯闭环可移除
+    environment:
+      - PORT=8000
+      - ENV=staging
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      - "80:80"
+    depends_on: [backend]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }

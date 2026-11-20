@@ -1,0 +1,24 @@
+# 后端 Dockerfile 示例（通用模板，按语言调整）
+
+# 说明：这是后端镜像的通用构建模板。隔离环境用此镜像启动 staging。
+# 实际使用请根据后端语言替换基础镜像与构建命令。
+
+# ---- 构建阶段 ----
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /server ./cmd/server
+
+# ---- 运行阶段（最小镜像，无多余工具，缩小攻击面）----
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates curl
+# 创建非 root 用户，禁止以 root 运行
+RUN addgroup -S app && adduser -S app -G app
+USER app
+WORKDIR /app
+COPY --from=builder /server /app/server
+EXPOSE 8000
+HEALTHCHECK CMD curl -f http://localhost:8000/health || exit 1
+ENTRYPOINT ["/app/server"]

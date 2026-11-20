@@ -1,0 +1,144 @@
+# CI/CD 流水线：多智能体协同开发的自动门禁
+# 用途：每个阶段自动执行门禁，不通过则阻断合入。
+# 关键：测试/安全/部署全部在"隔离环境"进行，绝不触碰生产。
+
+name: AI Dev Pipeline
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+# 权限最小化
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  # 仅测试环境变量，无任何生产凭证
+  TEST_DB_PASSWORD: test_only_password
+
+jobs:
+  # ---------- 门禁1：前端构建与单测 ----------
+  frontend-check:
+    name: 前端 编译+Lint+单测
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: frontend }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run lint          # 门禁：无 error 级告警
+      - run: npm run build         # 门禁：构建成功
+      - run: npm test -- --coverage --coverageThreshold='{"global":{"lines":80}}'  # 门禁：覆盖率达标
+
+  # ---------- 门禁2：后端构建与单测 ----------
+  backend-check:
+    name: 后端 编译+单测
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: backend }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: go vet ./...           # 门禁：静态检查
+      - run: go test ./... -cover   # 门禁：单测通过
+
+  # ---------- 门禁3：集成/功能/UI 测试（隔离环境） ----------
+  integration-test:
+    name: 集成+UI 测试（隔离环境）
+    runs-on: ubuntu-latest
+    needs: [frontend-check, backend-check]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 启动隔离测试环境
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: 等待服务就绪
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/health && break
+            sleep 2
+          done
+      - name: 运行集成测试
+        run: docker compose -f deploy/docker-compose.yml exec -T test-runner pytest /tests/integration
+      - name: 运行 UI 测试
+        run: docker compose -f deploy/docker-compose.yml exec -T test-runner npx playwright test /tests/ui
+      - name: 销毁隔离环境（用完即弃）
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  # ---------- 门禁4：安全扫描（隔离环境） ----------
+  security-scan:
+    name: 安全扫描（依赖+容器+Web）
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 依赖漏洞审计（trivy）
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH        # 门禁：无 Critical/High
+          exit-code: 1
+      - name: 启动环境做 Web 扫描
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: OWASP ZAP 基线扫描
+        run: |
+          docker compose -f deploy/docker-compose.yml up -d zap
+          # 调用 ZAP 对 backend 做主动扫描（简化示例）
+          docker compose -f deploy/docker-compose.yml exec -T zap zap-baseline.py -t http://backend:8000 -r zap-report.html
+      - name: 销毁隔离环境
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  # ---------- 门禁5：性能测试（隔离环境） ----------
+  performance-test:
+    name: 性能测试（k6）
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 启动环境
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: 运行 k6 压测
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: tests/performance/load-test.js
+          flags: --vus 50 --duration 30s
+      - name: 销毁环境
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
+
+  # ---------- 门禁6：部署到 staging（隔离环境） ----------
+  deploy-staging:
+    name: 部署 staging（隔离环境）
+    runs-on: ubuntu-latest
+    needs: [security-scan, performance-test]
+    environment: staging              # GitHub Environment，可加人工审批
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建并部署 staging
+        run: docker compose -f deploy/docker-compose.yml up -d --build
+      - name: 健康检查
+        run: curl -fsS http://localhost:8000/health
+      - name: 归档 runbook
+        uses: actions/upload-artifact@v4
+        with:
+          name: runbook
+          path: docs/runbook.md
+
+  # ---------- 生产发布：仅手动触发 + 人工审批（不自动上线） ----------
+  deploy-prod:
+    name: 部署生产（需人工审批）
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    environment: production           # GitHub Environment 配置 Required reviewers 实现人工审批
+    steps:
+      - run: echo "生产发布需在 GitHub Environment 中配置 Required reviewers，人工审批后才会执行"
+      # 生产部署命令（灰度 + 回滚策略）在此处，绝不自动执行

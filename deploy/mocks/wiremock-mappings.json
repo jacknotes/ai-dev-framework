@@ -1,0 +1,36 @@
+# 隔离环境的 Mock 配置示例（WireMock）
+# 用途：用契约 mock 替代外部依赖（支付/短信/第三方 API），保证闭环测试不依赖真实外部服务。
+
+{
+  "mappings": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "/payment/charge"
+      },
+      "response": {
+        "status": 200,
+        "jsonBody": {
+          "transaction_id": "mock_txn_0001",
+          "status": "success"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "/sms/send"
+      },
+      "response": {
+        "status": 200,
+        "jsonBody": {
+          "code": 0,
+          "message": "sent"
+        }
+      }
+    }
+  ]
+}

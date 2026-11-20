@@ -1,0 +1,47 @@
+# React + Python 模板 — 隔离环境编排
+# 一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证。
+
+name: react-python-sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=staging
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      - "80:80"
+    depends_on: [backend]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
