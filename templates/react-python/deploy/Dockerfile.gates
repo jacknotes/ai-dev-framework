@@ -1,0 +1,82 @@
+# 门禁执行器镜像：Node 20 + Python 3（在容器内跑 lint/build/test）
+#
+# 为什么需要它：
+#   "服务跑在容器里、门禁跑在宿主机"会导致两套工具链口径，出现"本地过、容器红"的假失败。
+#   有了这个镜像，五道门禁全部在隔离环境内执行，与 CI 完全一致。
+#
+# 两个关键约束（都是踩过的坑）：
+#   1. 基础镜像必须用 bookworm（Debian 12），不能用 bullseye：
+#      Debian 11 已 EOL，deb.debian.org 对它的包返回 404
+#      （实测 python3.9-minimal_3.9.2-1+deb11u7_amd64.deb 404）。
+#   2. 沙箱网络是 internal（无外网），所以前端依赖不能在运行时 npm install，
+#      必须在**构建期**装好并烘焙进镜像（构建期有网络），
+#      再由 entrypoint 在容器启动时播种到挂载目录。
+#
+# 构建上下文是项目根（compose 里 context: ..），故路径写 backend/、frontend/。
+
+FROM node:20-bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    npm_config_verify_deps_before_run=false
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      python3 python3-pip python3-venv curl ca-certificates git \
+ && rm -rf /var/lib/apt/lists/* \
+ && ln -sf /usr/bin/python3 /usr/local/bin/python
+
+WORKDIR /work
+
+# ---- 构建期预装前端依赖，落到 /opt/frontend-deps ----
+# 用 shell 判断，使没有前端的模板也能复用本镜像。
+# 注意 npm 11 的 install-scripts 机制默认阻止 postinstall，
+# 而 esbuild（vite 的依赖）必须跑 postinstall 才能工作，故显式放开。
+COPY frontend/ /tmp/frontend-src/
+RUN if [ -f /tmp/frontend-src/package.json ]; then \
+      mkdir -p /opt/frontend-deps \
+      && cp /tmp/frontend-src/package.json /opt/frontend-deps/ \
+      && ( [ -f /tmp/frontend-src/package-lock.json ] && cp /tmp/frontend-src/package-lock.json /opt/frontend-deps/ || true ) \
+      && cd /opt/frontend-deps \
+      && ( npm ci --no-audit --no-fund --foreground-scripts || npm install --no-audit --no-fund --foreground-scripts ); \
+    fi; \
+    rm -rf /tmp/frontend-src
+
+# ---- 构建期预装后端依赖 ----
+COPY backend/ /tmp/backend-src/
+RUN if [ -f /tmp/backend-src/requirements.txt ]; then \
+      pip3 install --no-cache-dir -r /tmp/backend-src/requirements.txt; \
+    fi; \
+    if [ -f /tmp/backend-src/requirements-dev.txt ]; then \
+      pip3 install --no-cache-dir -r /tmp/backend-src/requirements-dev.txt; \
+    fi; \
+    rm -rf /tmp/backend-src
+
+# ---- entrypoint：把镜像内预装的依赖播种到 data volume ----
+# /work 是宿主目录的 bind mount（无 node_modules），且运行期没有外网，
+# 无法 npm install，所以必须从镜像内拷贝。
+#
+# 为什么用「命名卷 + 完成标记」而不是每次 cp：
+#   1. 直接 cp 到 bind mount 时，238 个包的复制可能被中断/并发，
+#      导致半成品 node_modules（实测只到位 40 个包），eslint 找不到。
+#   2. 每次启动都 cp 太慢。
+#   命名卷首次挂载为空，播种一次后写 .seed-complete，后续启动秒进。
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'MARKER=/work/frontend/node_modules/.seed-complete' \
+    'if [ -d /work/frontend/node_modules ] && [ ! -f "$MARKER" ] && [ -d /opt/frontend-deps/node_modules ]; then' \
+    '  echo "[gates] 首次播种前端依赖（约 200+ 包，稍候）..."' \
+    '  rm -rf /work/frontend/node_modules/* /work/frontend/node_modules/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/frontend-deps/node_modules/. /work/frontend/node_modules/' \
+    '  touch "$MARKER"' \
+    '  echo "[gates] 依赖播种完成"' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/gates-entrypoint.sh \
+ && chmod +x /usr/local/bin/gates-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/gates-entrypoint.sh"]
+CMD ["sleep", "infinity"]

@@ -1,0 +1,46 @@
+# ============================================================
+# 换行符与文本属性（框架级，必须存在）
+#
+# 为什么这个文件是"必须"而不是"可选"：
+#   Windows 上 git 默认 core.autocrlf=true，会把 .sh 检出成 CRLF。
+#   bash 读到 CRLF 会报 "$'\r': command not found"，25 个门禁脚本
+#   在新克隆的机器上会全部失效——而且报错信息完全不指向"换行符"，
+#   排查成本极高。所以必须在仓库里显式锁定。
+# ============================================================
+
+# 默认：由 git 自动判定文本/二进制
+* text=auto
+
+# ---- 必须永远是 LF 的文件（否则无法执行）----
+*.sh          text eol=lf
+*.bash        text eol=lf
+Dockerfile*   text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.conf        text eol=lf
+*.json        text eol=lf
+*.js          text eol=lf
+*.mjs         text eol=lf
+*.ts          text eol=lf
+*.tsx         text eol=lf
+*.vue         text eol=lf
+*.css         text eol=lf
+
+# ---- Windows 批处理必须是 CRLF ----
+*.cmd         text eol=crlf
+*.bat         text eol=crlf
+
+# ---- 无需换行转换的二进制 ----
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
+*.jar         binary
+*.zip         binary
+*.pdf         binary
+
+# ---- 文档：无需强制，但标记为文本便于 diff ----
+*.md          text

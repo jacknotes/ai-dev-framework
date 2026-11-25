@@ -1,5 +1,15 @@
-# React + Python 模板 — 隔离环境编排
-# 一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证。
+# React + Python 模板 — Docker 隔离测试环境
+#
+# 设计目标（对应 docs/03 §7 五重隔离）：
+#   1. 网络隔离：internal 网络，容器不能访问外网，也不能被局域网直连
+#   2. 数据隔离：只读根文件系统 + tmpfs，不落盘、不连真实库
+#   3. 凭证隔离：只有测试变量，无生产密钥
+#   4. 执行沙箱：read_only + no-new-privileges + CPU/内存限额
+#   5. 一次性：docker compose down -v 即彻底消失
+#
+# 端口说明：默认不发布到宿主机（internal 网络下发布端口在不同 Docker 版本行为不一致），
+# 健康检查与 e2e 一律走 `docker compose exec` 在容器内执行，保证"真隔离"。
+# 如需浏览器访问，加 --profile publish 并看 deploy/docker/README.md 的说明。
 
 name: react-python-sandbox
 
@@ -17,10 +27,11 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     networks: [sandbox]
-    ports:
-      - "8000:8000"
     environment:
       - ENV=staging
+      # 只读根文件系统下 Python 无法写 __pycache__，显式关闭字节码写入
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
     security_opt: [no-new-privileges:true]
     read_only: true
     tmpfs: [/tmp]
@@ -28,20 +39,79 @@ services:
       resources:
         limits: { cpus: "0.5", memory: 512M }
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
 
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
     networks: [sandbox]
-    ports:
-      - "80:80"
-    depends_on: [backend]
+    depends_on:
+      backend:
+        condition: service_healthy
     security_opt: [no-new-privileges:true]
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 256M }
+    healthcheck:
+      # 必须用 127.0.0.1 而不是 localhost：容器内 localhost 解析为 IPv6 ::1，
+      # 而 nginx 只监听 IPv4 0.0.0.0:80，用 localhost 会得到假失败（实测踩过）。
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- 门禁执行器（可选，profile: gates）----------
+  # 提供 Node + Python 双工具链，在容器内执行 lint/build/test，
+  # 避免"门禁跑在宿主机、服务跑在容器里"的口径不一致。
+  #
+  # 关键设计：node_modules 单独挂**命名卷**，而不是让它落在源码 bind mount 里。
+  #   原因：沙箱运行在 internal 网络（无外网），容器内无法 npm install；
+  #   镜像构建期已把依赖装到 /opt/frontend-deps，
+  #   entrypoint 在命名卷首次挂载（空）时一次性播种，之后启动即秒进。
+  #   若直接写进 bind mount，238 个包的复制中途失败会留下半成品 node_modules
+  #   （实测只到位 40 个包，eslint 找不到），且无法自愈。
+  gates:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gates
+    profiles: [gates]
+    networks: [sandbox]
+    working_dir: /work
+    volumes:
+      - ../:/work
+      - frontend-node-modules:/work/frontend/node_modules
+      - npm-cache:/root/.npm
+      - pip-cache:/root/.cache/pip
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - npm_config_verify_deps_before_run=false
+    command: ["sleep", "infinity"]
+
+  # ---------- 测试执行器（Playwright，可选，profile: e2e）----------
+  test-runner:
+    image: mcr.microsoft.com/playwright:v1.44-jammy
+    profiles: [e2e]
+    networks: [sandbox]
+    working_dir: /tests
+    volumes:
+      - ../tests:/tests
+    environment:
+      - TEST_BASE_URL=http://frontend
+      - API_BASE_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    command: ["sleep", "infinity"]
+
+volumes:
+  npm-cache:
+  pip-cache:
+  # 前端依赖的命名卷：由 gates 镜像的 entrypoint 从 /opt/frontend-deps 播种
+  frontend-node-modules:

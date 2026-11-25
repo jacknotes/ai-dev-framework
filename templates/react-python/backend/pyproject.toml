@@ -1,0 +1,30 @@
+# Ruff 配置（门禁 lint.sh 使用）
+#
+# 为什么需要这个文件：
+#   1. 在 Windows 上通过 Docker 挂载源码时，文件权限被映射成 777，
+#      ruff 会误判所有 .py 为"可执行但无 shebang"并报 EXE002。
+#      这不是代码问题，是文件系统差异，必须显式忽略。
+#   2. 显式声明规则集，避免 ruff 版本升级后默认规则变化导致门禁"无端变红"。
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "EXE002",  # 可执行但无 shebang —— Windows 挂载导致 777，属误报
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

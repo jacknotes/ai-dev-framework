@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  web.xml — 仅保留必要容器配置。
+
+  本项目的 Servlet 注册使用 @WebServlet 注解（见 HealthServlet / GreetingServlet），
+  因此这里**不再重复声明 <servlet> 与 <servlet-mapping>**，避免"注解 + XML"双份配置
+  不一致导致映射覆盖的经典问题。
+
+  为什么仍然保留 web.xml（而不是完全删掉）：
+    1. 显式声明 Servlet 规范的版本元数据，便于容器选择正确的行为；
+    2. 集中放置全应用级配置（编码、会话、欢迎页、错误页），这些无法用注解表达；
+    3. 部分遗留改造项目要求在 web.xml 里能看到映射全貌，保留文件降低认知成本。
+
+  注意：Tomcat 10.1 使用 Jakarta EE 9+ 命名空间（jakarta.servlet.*），
+  web-app 版本必须是 6.0；写成 5.0 或 4.0 会导致容器按旧行为解析。
+-->
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                             https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
+         version="6.0"
+         metadata-complete="false">
+
+    <display-name>jsp-servlet-demo</display-name>
+    <description>AI 多智能体协同开发框架 — JSP + Servlet 项目起点模板</description>
+
+    <!-- ==================== 编码 ==================== -->
+    <!-- 请求默认编码设为 UTF-8，避免中文参数乱码 -->
+    <request-character-encoding>UTF-8</request-character-encoding>
+    <response-character-encoding>UTF-8</response-character-encoding>
+
+    <!-- ==================== 会话 ==================== -->
+    <!-- 本示例无状态，超时设短；不使用 Session 也不影响正确性 -->
+    <session-config>
+        <session-timeout>15</session-timeout>
+        <cookie-config>
+            <http-only>true</http-only>
+        </cookie-config>
+        <tracking-mode>COOKIE</tracking-mode>
+    </session-config>
+
+    <!-- ==================== 欢迎页 ==================== -->
+    <!-- 访问 / 时由容器转发到 index.jsp；与 docs/pages.md 的 PG-1 对应 -->
+    <welcome-file-list>
+        <welcome-file>index.jsp</welcome-file>
+    </welcome-file-list>
+
+    <!-- ==================== 错误页 ==================== -->
+    <!--
+      当前不自定义错误页，使用容器默认页，避免模板引入无谓文件。
+      生产环境应补 <error-page> 指向自定义错误页，且不得回显堆栈与容器版本。
+      示例（启用时取消注释并补 pages.md 的 PG-3 归属说明）：
+
+      <error-page>
+          <error-code>500</error-code>
+          <location>/WEB-INF/error/500.jsp</location>
+      </error-page>
+    -->
+
+    <!--
+      说明（不生效的配置不要写）：
+      - <servlet> / <servlet-mapping>：由 @WebServlet 注解承担，见两个 Servlet 类。
+      - <filter>：本示例无过滤器需求。
+      - <jsp-config>：JSP 编码已在 index.jsp 的 page 指令中声明。
+    -->
+</web-app>

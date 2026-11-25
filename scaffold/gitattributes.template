@@ -1,0 +1,47 @@
+# 仓库级换行符与文本属性
+#
+# 为什么必须有这个文件：
+#   Windows 上 git 默认 core.autocrlf=true，会把 .sh 检出成 CRLF。
+#   bash 读到 CRLF 会报 "$'\r': command not found"，导致 scripts/*.sh
+#   五道门禁脚本全部失效，而报错信息完全不指向"换行符"，排查成本极高。
+
+* text=auto
+
+# ---- 必须永远是 LF ----
+*.sh          text eol=lf
+*.bash        text eol=lf
+Dockerfile*   text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.conf        text eol=lf
+*.json        text eol=lf
+*.js          text eol=lf
+*.mjs         text eol=lf
+*.ts          text eol=lf
+*.tsx         text eol=lf
+*.vue         text eol=lf
+*.css         text eol=lf
+*.xml         text eol=lf
+*.java        text eol=lf
+*.go          text eol=lf
+*.py          text eol=lf
+*.cs          text eol=lf
+*.jsp         text eol=lf
+
+# ---- Windows 批处理 ----
+*.cmd         text eol=crlf
+*.bat         text eol=crlf
+
+# ---- 二进制 ----
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
+*.jar         binary
+*.zip         binary
+*.pdf         binary
+
+*.md          text

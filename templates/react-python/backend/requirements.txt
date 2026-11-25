@@ -1,3 +1,12 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
+# 后端运行依赖
+#
+# 说明：使用「下限 + 上限」区间而非精确锁定，原因有两个：
+#   1. 精确锁定会在新版 Python（如 3.14）上因缺少预编译 wheel 而被迫源码编译，
+#      进而因本地编译环境缺失而安装失败（典型：pydantic-core）。
+#   2. 区间能在保持 ABI 兼容的前提下自动选取有 wheel 的版本。
+#
+# 需要完全可复现的构建时，请用 `pip freeze > requirements.lock.txt` 生成锁文件，
+# 并在 CI 与 Dockerfile 中安装锁文件——这是「可复现」与「可安装」的正确分工。
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.9,<3.0

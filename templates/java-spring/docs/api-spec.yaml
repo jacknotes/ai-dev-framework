@@ -1,0 +1,61 @@
+openapi: 3.0.3
+info:
+  title: Java + Spring Boot 示例 API
+  version: 0.1.0
+  description: |
+    AI 多智能体协同开发框架 — Java/Spring Boot 模板的接口契约。
+    前后端均以此文件为唯一事实源，字段变更必须先改契约再改代码。
+servers:
+  - url: http://localhost:8000
+    description: 本地开发 / 隔离环境直连后端
+  - url: http://localhost
+    description: 经前端 Nginx 反代访问
+tags:
+  - name: system
+    description: 系统与探针
+  - name: greeting
+    description: 示例业务接口
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: 健康检查
+      description: 存活探测，供 Docker HEALTHCHECK、部署门禁与 scripts/health.sh 调用。不检查外部依赖。
+      operationId: getHealth
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /api/v1/greeting:
+    get:
+      tags: [greeting]
+      summary: 返回问候语
+      description: 返回固定问候语与服务器当前时间，用于验证前后端联通。
+      operationId: getGreeting
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, time]
+                properties:
+                  message:
+                    type: string
+                    example: Hello from Java backend
+                  time:
+                    type: string
+                    format: date-time
+                    description: 服务端 UTC 时间，ISO-8601 格式（Instant.toString() 输出）
+                    example: 2026-11-20T08:00:00Z
+        '405':
+          description: 方法不允许（例如误用 POST）

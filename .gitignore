@@ -1,0 +1,29 @@
+# 框架仓库自身的忽略规则
+# 注意：templates/ 下另有各自的 .gitignore，用于被复制成新项目后生效。
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 本地沙箱与临时产物（由 sandbox/ 与本地闭环环境生成）
+sandbox/
+.local-env/
+*.log
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# 系统
+.DS_Store
+Thumbs.db

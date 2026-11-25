@@ -1,0 +1,38 @@
+# Java / Maven
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+.settings/
+.classpath
+.project
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 日志与临时
+*.log
+logs/
+tmp/
+.DS_Store
+Thumbs.db

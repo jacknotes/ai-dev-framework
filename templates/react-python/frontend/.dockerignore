@@ -1,0 +1,8 @@
+# 构建上下文排除：避免把本地依赖/产物打进镜像（会让构建变慢且可能覆盖镜像内文件）
+node_modules
+dist
+coverage
+.vite
+*.log
+Dockerfile
+.dockerignore

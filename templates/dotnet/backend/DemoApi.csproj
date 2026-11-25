@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- ASP.NET Core 8 Minimal API 示例工程（框架 .NET 模板） -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- C# 12 随 .NET 8 默认启用 -->
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DemoApi</RootNamespace>
+    <AssemblyName>DemoApi</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- 生成入口程序集的 XML 注释文件，便于契约说明 -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- 单元测试位于 tests/ 子目录，由独立测试项目承载，主工程不参与编译 -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <Content Remove="tests/**" />
+    <None Remove="tests/**" />
+    <EmbeddedResource Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- 说明：Web SDK 已隐式引用 Microsoft.AspNetCore.App 框架，
+       本模板不引入任何 NuGet 依赖，保持隔离环境构建快、攻击面小。 -->
+
+</Project>

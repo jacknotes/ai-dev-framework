@@ -1,0 +1,160 @@
+# AGENTS.md — {{PROJECT_NAME}}
+
+> 本文件会被 DeepSeek Harness / Claude Code 等工具**自动注入**到每个智能体的上下文。
+> 它是本项目所有 AI 智能体的第一入口。**先读这里，再读 `docs/`。**
+
+| 项 | 值 |
+|---|---|
+| 项目名 | {{PROJECT_NAME}} |
+| 技术栈 | {{STACK}} |
+| 由框架生成 | AI-Dev-Framework（见 `docs/00-项目约定.md`） |
+
+---
+
+## 1. 一分钟了解本项目
+
+这是一个按「AI 多智能体协同开发框架」组织的项目。核心思想只有一句：
+
+> **写代码的智能体，不得验收自己的代码。**
+
+所有状态落在 Git 仓库（不靠任何智能体的"记忆"），靠五道**真实退出码**门禁推进。
+
+```
+需求 → 架构 → 拆解 → 并行编码 → 评审 → 集成测试 → 安全 → 性能 → 部署 → 验收 → 交付
+```
+
+---
+
+## 2. 五入口命令契约（最重要的一节）
+
+项目根 `scripts/` 下**恰好**这 5 个脚本，任何 AI、任何 CI 都只认它们：
+
+| 入口 | 用途 | 通过条件 |
+|---|---|---|
+| `scripts/lint.sh` | 静态检查 / 格式 | `exit 0` |
+| `scripts/build.sh` | 构建产物 | `exit 0` |
+| `scripts/test.sh` | 单元测试 + 覆盖率 | `exit 0`（阈值内置） |
+| `scripts/health.sh` | 部署后健康检查 | `exit 0` |
+| `scripts/e2e.sh` | 集成 / UI 测试 | `exit 0` |
+
+**绝对不要做的事：**
+
+```bash
+cmd || true          # ✗ 吞掉退出码
+cmd; exit 0          # ✗ 恒定通过
+```
+
+这是本框架唯一不能妥协的红线。门禁一旦能"假通过"，整套框架就退化成角色扮演。
+
+> 需要换技术栈？**只重写这 5 个脚本**，编排器与 CI 零改动。
+
+---
+
+## 3. 目录职责（改错目录 = 返工）
+
+| 目录 | 谁可以改 | 内容 |
+|---|---|---|
+| `docs/requirements.md` | PM 智能体 | 需求 + **可测**验收标准 |
+| `docs/architecture.md`<br>`docs/api-spec.yaml` | 架构师智能体 | 技术选型、架构图、**接口契约** |
+| `frontend/` | 前端智能体 | 前端实现 + 单元测试 |
+| `backend/` | 后端智能体 | 后端实现 + 单元测试 |
+| `tests/` | **仅独立测试/安全智能体** | 集成/UI/性能/安全用例 |
+| `deploy/` | 运维智能体 | 隔离环境 IaC |
+| `scripts/` | 架构师（受控） | 五入口契约 |
+| `docs/pipeline-status.md` | 编排器 | **唯一的状态事实源** |
+
+**硬性规则：**
+
+1. 前端智能体**不碰** `backend/`，后端智能体**不碰** `frontend/`。
+2. 测试智能体**只读业务代码**，不改。
+3. 任何智能体都**不得修改测试用例使其变绿**，不得降低 lint/覆盖率门槛。
+
+---
+
+## 4. 开始工作前必须做的三件事
+
+```bash
+# 1) 确认契约完整
+cat docs/api-spec.yaml
+
+# 2) 确认当前状态（谁做到哪一步了）
+cat docs/pipeline-status.md
+
+# 3) 跑一遍门禁，确认基线是绿的
+bash scripts/lint.sh && bash scripts/build.sh && bash scripts/test.sh
+```
+
+**基线不绿就不要开始写新功能**——先修基线，否则你分不清"是我弄坏的"还是"本来就坏"。
+
+---
+
+## 5. 隔离环境（不碰真实环境）
+
+**优先用 Docker（真沙箱）**：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\docker\setup.ps1    # 首次：配镜像加速器 + 校验 WSL2
+powershell -ExecutionPolicy Bypass -File deploy\docker\up.ps1       # 启动
+powershell -ExecutionPolicy Bypass -File deploy\docker\verify.ps1   # 容器内跑五道门禁
+powershell -ExecutionPolicy Bypass -File deploy\docker\down.ps1     # 销毁
+```
+
+**没有 Docker 时用本机沙箱**（只绑 127.0.0.1，秒级启动）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\local\setup.ps1     # 一次性准备
+powershell -ExecutionPolicy Bypass -File deploy\local\up.ps1        # 启动
+powershell -ExecutionPolicy Bypass -File deploy\local\verify.ps1    # 跑五道门禁，退出码即结论
+powershell -ExecutionPolicy Bypass -File deploy\local\down.ps1      # 销毁，回到"从未存在"
+```
+
+> 说明：`powershell -ExecutionPolicy Bypass -File` 是 Windows 自带 PowerShell 5.1 即可用的写法；
+> 装了 PowerShell 7 可简写为 `pwsh -File`。
+
+---
+
+## 6. 隔离红线（违反即严重事故）
+
+1. **绝不连生产库/真实用户数据。** 只用合成数据。
+2. **绝不在测试环境注入生产密钥。** 只允许 `test_only_password` 这类测试凭证。
+3. **绝不自动发布生产。** 生产发布必须人工审批。
+4. **外部依赖走 Mock**，不打真实第三方（支付/短信）。
+
+---
+
+## 7. 提交规范
+
+```
+<type>(<scope>): <subject>
+
+type: feat | fix | docs | test | refactor | chore | perf | security
+scope: frontend | backend | docs | deploy | scripts | ci
+```
+
+例：`feat(backend): 新增用户登录接口`
+
+分支：`main`（受保护）← `develop` ← `feature/*`
+
+---
+
+## 8. 遇到门禁失败怎么办
+
+```bash
+# 看真实报错，不要猜
+bash scripts/lint.sh 2>&1 | tail -40
+```
+
+1. **读懂失败原因**（脚本末行就是结论）。
+2. **修复根因**，不要绕过门禁、不要放宽阈值。
+3. 重跑，直到 `exit 0`。
+4. 三次仍失败 → 停止，把失败报告写进 `docs/pipeline-status.md` 的"失败与退回记录"，交给人。
+
+---
+
+## 9. 交付标准（DoD）
+
+- [ ] 五道门禁全绿
+- [ ] `docs/` 下需求/架构/测试/运维文档齐全
+- [ ] `docs/pipeline-status.md` 已更新
+- [ ] 没有 `|| true` 这类吞码写法
+- [ ] 任何人只读仓库就能从零重建环境

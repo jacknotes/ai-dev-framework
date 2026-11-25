@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JSP + Servlet 示例工程 — Maven 构建描述
+  技术栈：Java 17 + Servlet 6 / JSP 3.1（Jakarta EE 命名空间 jakarta.servlet.*）
+  打包方式：war（部署到 Tomcat 10.1，作为 ROOT 上下文）
+  说明：本文件不含 checkstyle 插件——scripts/lint.sh 会检测其缺失并退化为编译检查。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>jsp-servlet-demo</artifactId>
+    <version>0.1.0</version>
+    <packaging>war</packaging>
+
+    <name>jsp-servlet-demo</name>
+    <description>AI 多智能体协同开发框架 — JSP + Servlet 项目起点模板</description>
+
+    <properties>
+        <!-- 统一 UTF-8，避免源码与资源乱码 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <maven.compiler.release>17</maven.compiler.release>
+
+        <!-- 应用最终部署为 ROOT 上下文，因此 war 文件名固定为 ROOT.war -->
+        <war.name>ROOT</war.name>
+
+        <servlet.api.version>6.0.0</servlet.api.version>
+        <!-- JSP 3.1.x；容器实际提供实现，这里只需编译期 API -->
+        <jsp.api.version>3.1.0</jsp.api.version>
+        <junit.version>5.10.2</junit.version>
+        <mockito.version>5.11.0</mockito.version>
+    </properties>
+
+    <dependencies>
+        <!-- Servlet API：由 Tomcat 10.1 提供，作用域必须是 provided，不能打进 war -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${servlet.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- JSP API：由容器提供，仅供编译期使用 -->
+        <dependency>
+            <groupId>jakarta.servlet.jsp</groupId>
+            <artifactId>jakarta.servlet.jsp-api</artifactId>
+            <version>${jsp.api.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- 单元测试：JUnit 5（Jupiter） -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Mockito：用于隔离 Servlet 与外部协作者（本期单测未强依赖，预留给 Web 层测试） -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <!-- 产物名固定为 ROOT，方便直接覆盖 Tomcat 的 webapps/ROOT -->
+        <finalName>${war.name}</finalName>
+
+        <plugins>
+            <!-- war 打包：产物名由 <finalName> 控制（已在上方设为 ROOT） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <!-- 本工程有 web.xml；显式设为 false 是为了让"加入 web.xml 之前"
+                         也能构建，便于新项目从零起步 -->
+                    <failOnMissingWebXml>false</failOnMissingWebXml>
+                </configuration>
+            </plugin>
+
+            <!-- 单元测试执行器：JUnit 5 需要 surefire 3.x 才原生识别 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                </configuration>
+            </plugin>
+
+            <!-- 编译插件：显式声明版本，避免不同 Maven 默认值不一致 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

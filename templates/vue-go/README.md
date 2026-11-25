@@ -54,16 +54,14 @@ docker compose down -v              # 用完即销毁
 
 ## 运行测试（对应框架门禁）
 
+统一入口是根目录的 `scripts/` 五门禁（`lint` / `build` / `test` / `health` / `e2e`）：
+
 ```bash
-# 后端单测
-cd backend && go test ./...
-
-# 前端 lint + 单测（含覆盖率门禁）
-cd frontend && npm install && npm run lint && npm test
-
-# 前端构建
-npm run build
+bash scripts/lint.sh && bash scripts/build.sh && bash scripts/test.sh
 ```
+
+> 可复现的完整构建/部署/故障排查命令见 [`docs/runbook.md`](docs/runbook.md)，
+> 这里是唯一命令来源；本节只作快速起步。
 
 ## 与框架的关系
 

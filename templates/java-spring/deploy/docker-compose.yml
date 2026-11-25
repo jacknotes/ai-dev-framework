@@ -1,0 +1,84 @@
+# ============================================================================
+# Java + Spring Boot 模板 — 隔离环境编排
+#
+# 用途：一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证。
+# 说明：网络 internal: true 表示容器只能内网互通，不能访问外网；
+#       端口映射仅供本地调试。
+# 网段 172.33.0.0/24 与既有模板互不重叠，可同时 up。
+#
+# 健康检查统一用 127.0.0.1 而非 localhost：
+#   容器内 localhost 会解析到 IPv6 ::1，而服务通常只监听 IPv4，
+#   用 localhost 会得到 "connection refused" 的假失败（实测踩过）。
+# ============================================================================
+
+name: java-spring-sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+    # 封闭网络：不出网，符合框架"网络隔离"要求
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: java-spring-backend
+    networks: [sandbox]
+    ports:
+      # 仅本地调试开放；纯闭环可移除
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - ENV=staging
+      - TZ=Asia/Shanghai
+    security_opt: [no-new-privileges:true]
+    # 只读根文件系统
+    read_only: true
+    tmpfs:
+      # Spring Boot 需要可写的临时目录
+      - /tmp:rw,noexec,nosuid,size=64m
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+        reservations: { cpus: "0.1", memory: 128M }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # 给 JVM 启动留足时间，避免误判不健康
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: java-spring-frontend
+    networks: [sandbox]
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    # 只读根文件系统
+    read_only: true
+    tmpfs:
+      # Nginx 运行期需要写这两个目录
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+      - /var/run:rw,noexec,nosuid,size=8m
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+        reservations: { cpus: "0.1", memory: 64M }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

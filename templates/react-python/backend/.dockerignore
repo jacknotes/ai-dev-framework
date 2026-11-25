@@ -1,0 +1,10 @@
+# 构建上下文排除
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.venv
+tests
+*.log
+Dockerfile
+.dockerignore

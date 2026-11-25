@@ -1,0 +1,78 @@
+# ============================================================================
+# JSP + Servlet 模板 — 隔离环境编排
+#
+# 用途：一键启动应用，网络隔离、无真实数据、无生产凭证、用完即销毁。
+# 对应框架：docs/01 规范 §7 五重隔离 + docs/03 落地方案 §7。
+#
+# 与 templates/vue-go 的差异：JSP 应用的页面与接口同源、同容器、同端口，
+# 因此这里只有**一个服务**，不做前端/后端分层。这是技术栈事实，不是省事。
+# ============================================================================
+
+name: jsp-servlet-sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+    # internal: true —— 禁止访问外部网络，与生产内网不通（网络隔离的硬保证）
+    internal: true
+    ipam:
+      config:
+        # 独立网段，与既有模板全部错开：
+        #   vue-go 172.31 / react-python 172.32 / java-spring 172.33 / dotnet 172.34
+        # 多套模板同时 up 时不会因为网段重叠而启动失败。
+        - subnet: 172.35.0.0/24
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: jsp-servlet-demo:0.1.0
+    container_name: jsp-servlet-backend
+    networks: [sandbox]
+    ports:
+      # 仅本地调试开放；纯闭环（只跑自动化测试）时可整行移除。
+      # 注意：internal: true 只阻断容器**主动**访问外网与外部直连容器 IP；
+      # 宿主机的 docker-proxy 仍可把 127.0.0.1:8080 转发进来，因此本地 curl 可用。
+      # 若你的 Docker 版本下该转发不生效，改用：
+      #   docker compose exec backend curl -fsS http://127.0.0.1:8080/health
+      - "8080:8080"
+    environment:
+      # 测试环境标识；绝不注入任何生产凭证
+      - ENV=staging
+      # JVM 参数：堆上限按容器内存比例、OOM 即退出（交给编排层重启，而不是半死不活）
+      - CATALINA_OPTS=-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+      - TZ=Asia/Shanghai
+    # ---- 执行沙箱（五重隔离之"执行隔离"）----
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # 只读根文件系统下，这些目录必须可写；tmpfs 落在内存，重启即清空（数据隔离）。
+      # 必须显式给 uid/gid：tmpfs 默认挂载为 root:root，
+      # 而容器以 tomcat（UID 1000）运行，否则启动时会 Permission denied。
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /usr/local/tomcat/temp:rw,noexec,nosuid,size=64m,uid=1000,gid=1000,mode=0700
+      - /usr/local/tomcat/work:rw,noexec,nosuid,size=256m,uid=1000,gid=1000,mode=0700
+      - /usr/local/tomcat/logs:rw,noexec,nosuid,size=64m,uid=1000,gid=1000,mode=0700
+      # Tomcat 的 HostConfig 在某些版本下会尝试写入 conf/Catalina/localhost/，
+      # 只读根文件系统会让它启动失败。用 tmpfs 提供一个可写的空目录即可。
+      - /usr/local/tomcat/conf/Catalina:rw,noexec,nosuid,size=8m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    healthcheck:
+      # 与镜像内 HEALTHCHECK 一致：200 即健康（不解析 body，避免依赖 jq）
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped

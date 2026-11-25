@@ -1,5 +1,5 @@
 """问候接口路由。"""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -16,5 +16,5 @@ class Greeting(BaseModel):
 def get_greeting() -> Greeting:
     return Greeting(
         message="Hello from Python backend",
-        time=datetime.now(timezone.utc).isoformat(),
+        time=datetime.now(UTC).isoformat(),
     )

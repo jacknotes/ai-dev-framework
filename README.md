@@ -1,27 +1,46 @@
-# AI 多智能体协同开发框架 — 使用说明文档
+# AI 多智能体协同开发框架 — 使用说明
 
 > **框架名称**：AI-Dev-Framework（AI 多智能体协同开发闭环框架）
-> **版本**：v1.0
-> **目标**：让 AI 工具自动完成「编程 → 测试 → 部署 → 交付」，极少人工干预，并形成规范文档，像专业 GitHub 项目管理。
+> **版本**：v1.2
+> **目标**：让 AI 工具自动完成「编程 → 测试 → 部署 → 交付」，极少人工干预，并形成规范文档。
+> **当模板用（一条命令）**：`powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 项目名 -Stack react-python -Path D:\ai\项目名`
+> **第一次用**：直接看 [`docs/00-快速开始.md`](docs/00-快速开始.md)（5 分钟上手）。
 
 ---
 
-## 0. 这个框架是什么？一句话说明
+## 0. 这个框架是什么
 
-> **一个"编排器" + 多个"职责独立的智能体" + 一个"Git 仓库单一事实源" + 一系列"质量门禁" + 一套"隔离测试环境"。**
+> **一个「编排器」+ 多个「职责独立的智能体」+ 一个「Git 仓库单一事实源」+ 一系列「质量门禁」+ 一套「隔离测试环境」。**
 
 写代码的 AI 和验收代码的 AI 必须是**不同的智能体**（四眼原则），否则会"自己证明自己写对了"。所有智能体无状态，靠 Git 仓库交接，用完即弃。
 
+### 库 vs 实例
+
+```
+框架仓库（本仓库）  = 库       →  管"怎么协作"：规范/提示词/编排/门禁/隔离/模板
+新项目仓库（生成的） = 实例     →  管"协作出什么"：业务代码 + 该项目的文档与运行环境
+```
+
+框架升级**不会自动影响旧项目**（各自独立），需要时手动同步——这是刻意选择：避免"改框架把老项目搞挂"。
+
 ---
 
-## 1. 目录结构（本框架包含的全部文件）
+## 1. 目录结构（完整地图）
 
 ```
 ai-dev-framework/
-├── README.md                          # 本文档：使用说明（从这里开始）
+├── README.md                          # 本文档：总览 + 导航（从这里开始）
+├── AGENTS.md                          # ★ AI 进入本仓库时的自动注入须知
+├── LICENSE                            # MIT
+├── .gitignore
+├── .gitattributes                     # ★ 锁定 .sh 为 LF（没有它门禁在新克隆机器上会全废）
 ├── docs/
-│   └── 01-开发规范文档.md              # 交付物1：框架"宪法"（角色/流水线/门禁/隔离）
-├── prompts/                           # 交付物2：9个角色提示词模板
+│   ├── 00-快速开始.md                  # ★ 使用者入口：一条命令建项目 → 开始 AI 编程
+│   ├── 01-开发规范文档.md              # 交付物1：框架"宪法"（角色/流水线/门禁/隔离）
+│   ├── 02-复用与GitHub推送指南.md      # 交付物2：框架复用方式 + 推送 GitHub 步骤
+│   ├── 03-AI全闭环落地方案.md          # 交付物3：角色分工决策 + 闭环 + 隔离环境落地方案
+│   └── 04-门禁与命令契约.md            # 交付物4：五入口契约（lint/build/test/health/e2e）
+├── prompts/                           # 交付物5：9个角色提示词模板
 │   ├── 00-orchestrator.md             #   编排器
 │   ├── 01-pm.md                       #   需求/PM
 │   ├── 02-architect.md                #   架构师
@@ -32,152 +51,96 @@ ai-dev-framework/
 │   ├── 07-devops.md                   #   运维 DevOps
 │   └── 08-human-approver.md           #   人类审批话术模板
 ├── pipeline/
-│   └── pipeline.workflow.js           # 交付物3：最小闭环编排脚本（DSH workflow）
-├── deploy/                            # 交付物4：隔离环境配置
-│   ├── docker-compose.yml             #   隔离测试环境编排（网络/凭证/数据三隔离）
+│   └── pipeline.workflow.js           # 交付物6：DSH workflow 编排脚本（门禁真实执行+失败重试）
+├── scaffold/                          # 交付物7：复制进每个新项目的通用文件模板
+│   ├── AGENTS.md.template             #   项目级 AI 须知
+│   ├── gitattributes.template         #   项目级换行符锁定
+│   ├── CHANGELOG.md.template          #   变更日志骨架
+│   └── docs-00-项目约定.md.template    #   给人看的项目协作约定
+├── tools/                             # ★ 框架工具（一键建项目 / 自检）
+│   ├── new-project.ps1                #   从模板生成独立新项目
+│   └── verify-framework.ps1           #   框架自检（语法/契约/编码/换行符/吞码）
+├── deploy/                            # 交付物8：隔离环境
+│   ├── docker/                        #   ★ Docker 方案（推荐，完整五重隔离）
+│   │   ├── README.md                  #     前置条件、用法、隔离强度对比
+│   │   ├── setup.ps1                  #     重启后一次性配置（镜像加速器+WSL2校验）
+│   │   ├── up.ps1                     #     启动（复制模板到沙箱 → build → up → 等 healthy）
+│   │   ├── verify.ps1                 #     容器内执行五道门禁
+│   │   ├── down.ps1                   #     销毁（容器/网络/卷/镜像）
+│   │   └── daemon.json                #     镜像加速器配置模板
+│   ├── local/                         #   本机方案（无 Docker 时降级）
+│   │   ├── README.md                  #     能力边界与安全设计
+│   │   ├── setup.ps1                  #     一次性准备（venv+依赖）
+│   │   ├── up.ps1                     #     启动（幂等，绑定 127.0.0.1）
+│   │   ├── verify.ps1                 #     执行五道门禁并汇总
+│   │   └── down.ps1                   #     销毁（进程树+数据）
+│   ├── docker-compose.yml             #   框架级隔离环境（前端/后端/db/mock/test-runner/zap）
 │   ├── Dockerfile.backend             #   后端镜像模板（最小镜像+非root）
 │   └── mocks/
 │       └── wiremock-mappings.json     #   外部依赖 Mock 示例
+├── templates/                         # 交付物9：可直接复制的项目起点
+│   ├── react-python/                  #   React 18 + TS + Vite ／ FastAPI
+│   ├── vue-go/                        #   Vue 3 + TS + Vite ／ Go 1.22
+│   ├── java-spring/                   #   React + Spring Boot 3.3 ／ Java 21
+│   ├── dotnet/                        #   Vue 3 ／ ASP.NET Core 8
+│   └── jsp-servlet/                   #   JSP 3.1 + Servlet 6 ／ Tomcat 10.1（按模块切分）
 └── .github/
+    ├── ISSUE_TEMPLATE/task.md         # Issue 模板（含可测验收标准）
+    ├── pull_request_template.md       # PR 模板（含契约一致性自检）
     └── workflows/
-        └── ai-dev-pipeline.yml        #   CI/CD 自动门禁流水线
+        └── ai-dev-pipeline.yml        # 交付物10：CI/CD 自动门禁（按技术栈分流）
 ```
+
+> 每个模板都自带 `scripts/{lint,build,test,health,e2e}.sh` 五入口契约，
+> 新增技术栈只需实现这 5 个脚本，编排器与 CI 零改动（见 [`docs/04`](docs/04-门禁与命令契约.md)）。
 
 ---
 
-## 2. 从零搭建步骤（一步一步跟着做）
+## 2. 一条命令建项目
 
-### 第 1 步：理解核心概念（5 分钟）
-
-先读 [`docs/01-开发规范文档.md`](docs/01-开发规范文档.md)，重点看这四节：
-
-- **§1 四条铁律** —— 职责分离 / 单一事实源 / 最小权限 / 门禁不可跳过
-- **§2 角色定义表** —— 谁负责什么、谁能改代码
-- **§3 闭环流水线 10 阶段** —— 完整流程
-- **§7 环境隔离规范** —— 五重隔离
-
-> 这一份文档就是"宪法"，后面所有提示词、脚本、配置都是它的落地。
-
-### 第 2 步：搭好项目骨架（10 分钟）
-
-在你的新项目仓库里，按规范文档 §5 建立目录：
-
-```bash
-mkdir -p project/{docs,frontend,backend,tests,deploy,.github/workflows}
-git init
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 我的项目 -Stack react-python -Path D:\ai\我的项目
 ```
 
-把本框架的 `deploy/`、`.github/` 目录内容复制到你的项目对应位置。
+可选技术栈：`react-python`（默认）、`vue-go`、`java-spring`、`dotnet`、`jsp-servlet`。
+生成的是**完全独立的新仓库**（自带 `.git`、`AGENTS.md`、五入口 `scripts/`、CI、隔离环境）。
 
-### 第 3 步：准备隔离测试环境（15 分钟）
+> 详细步骤、首次怎么开工、三种使用模式、FAQ 都在 [`docs/00-快速开始.md`](docs/00-快速开始.md)。
 
-这是"不碰真实环境"的关键，先跑通：
+---
 
-```bash
-# 1. 确保装了 Docker + Docker Compose
-docker --version
+## 3. 阅读导航
 
-# 2. 启动隔离环境（会自动起前端/后端/数据库/Mock/测试执行器）
-cd deploy
-docker compose up -d --build
-
-# 3. 验证环境起来（后端健康检查）
-curl http://localhost:8000/health
-
-# 4. 用完即销毁（数据全清空）
-docker compose down -v
-```
-
-**隔离设计要点（务必理解）：**
-
-| 隔离项 | 本配置怎么做的 |
+| 你想做什么 | 看哪里 |
 |---|---|
-| 网络隔离 | `internal: true` + 独立网段 `172.30.0.0/24`，与生产网络不通 |
-| 数据隔离 | 数据库用 `tmpfs` 存内存，重启即清空，绝不落盘、绝不连生产库 |
-| 凭证隔离 | 只用 `test_only_password` 等测试凭证，无生产密钥 |
-| 外部依赖 | 支付/短信等指向 `mock-server`（WireMock），不依赖真实外部服务 |
-| 执行沙箱 | `read_only` + `no-new-privileges` + CPU/内存限制，防失控 |
+| 第一次用、5 分钟上手 | [`docs/00-快速开始.md`](docs/00-快速开始.md) |
+| 理解"为什么这样设计"（宪法） | [`docs/01-开发规范文档.md`](docs/01-开发规范文档.md) |
+| 复用 / 推 GitHub | [`docs/02-复用与GitHub推送指南.md`](docs/02-复用与GitHub推送指南.md) |
+| 角色分工决策、闭环、隔离方案 | [`docs/03-AI全闭环落地方案.md`](docs/03-AI全闭环落地方案.md) |
+| 改门禁 / 懂五入口契约 | [`docs/04-门禁与命令契约.md`](docs/04-门禁与命令契约.md) |
+| 隔离环境（Docker，推荐） | [`deploy/docker/README.md`](deploy/docker/README.md) |
+| 隔离环境（无 Docker） | [`deploy/local/README.md`](deploy/local/README.md) |
+| 角色提示词模板 | [`prompts/`](prompts/) |
+| DSH 编排脚本 | [`pipeline/pipeline.workflow.js`](pipeline/pipeline.workflow.js) |
 
-### 第 4 步：配置编排器（POC 先跑通闭环）
+---
 
-两种方式任选：
+## 4. 框架自检
 
-**方式 A：用本框架的 DSH workflow（推荐先做 POC）**
-
-1. 打开 [`pipeline/pipeline.workflow.js`](pipeline/pipeline.workflow.js)。
-2. 在 DSH 中新建 workflow，粘贴脚本，替换 `meta.name` 和 `args.requirement`。
-3. 运行 —— 它会依次调度 8 个角色子智能体，跑完整个闭环。
-
-**方式 B：用你现有的 Claude Code / 其他多智能体框架**
-
-把 [`prompts/`](prompts/) 里的 9 个提示词，分别赋给 9 个子智能体/会话，按规范文档 §3 的流水线顺序调度。
-
-### 第 5 步：接入自动门禁（CI）
-
-把 [`.github/workflows/ai-dev-pipeline.yml`](.github/workflows/ai-dev-pipeline.yml) 放进你的 GitHub 仓库，push 后它会自动执行：
-
-```
-前端编译+Lint+单测 → 后端编译+单测 → 集成+UI测试(隔离环境)
-   → 安全扫描 → 性能测试 → 部署staging(隔离) → 生产(人工审批)
+```powershell
+# 全量自检（25 个门禁脚本的语法 + 契约完整性 + 编码 + 换行符 + 吞码扫描）
+powershell -ExecutionPolicy Bypass -File tools\verify-framework.ps1
 ```
 
-### 第 6 步：配置人工审批点（最少干预的最后一道闸）
-
-在 GitHub 仓库 **Settings → Environments** 里：
-
-1. 新建 `staging` 和 `production` 两个环境。
-2. 给 `production` 添加 **Required reviewers**（你自己）。
-3. 这样：生产发布必须你点"批准"才执行，其余全自动。
+改完任何模板/脚本后**必须**跑一遍。这是框架仓库唯一的质量底线。
 
 ---
 
-## 3. 三种使用模式（按成熟度渐进）
+## 5. 当前状态（v1.2）
 
-| 模式 | 适用场景 | 人工介入 |
-|---|---|---|
-| **POC 验证** | 先跑通闭环 | 每步都看，用 workflow 脚本 |
-| **试点半自动** | 编码/评审/测试全自动 | 仅生产发布+最终验收需审批 |
-| **收敛全自动** | 成熟项目 | 仅定目标 + 关键门禁 + 最终验收 |
+核心能力均已落地：门禁真实退出码判定（P0）、编排补 e2e 且带失败重试（P0）、五入口契约 25 个脚本（P1）、
+CI 技术栈分流 + 锁文件降级（P1）、多技术栈模板（P2）、`tools/new-project.ps1` 一键建项目、`tools/verify-framework.ps1` 自检、
+`deploy/docker` + `deploy/local` 两套隔离环境、框架与模板双 `.gitattributes` 换行符锁定、框架级与项目级 `AGENTS.md`。
 
-> 强烈建议**从 POC 开始**，不要一上来追求全自动。
-
----
-
-## 4. 常见问题（FAQ）
-
-**Q1：为什么不让"一个大模型一个会话"全管？**
-答：上下文会爆、角色混淆（自己验收自己）、无法并行、不可审计。见规范文档 §1。
-
-**Q2：测试该由谁做？**
-答：单元测试由开发智能体顺手写；集成/功能/UI/性能/安全测试由**独立测试/安全智能体**做，它们只读代码、不改代码。
-
-**Q3：怎么保证不碰真实环境？**
-答：五重隔离（环境/网络/凭证/数据/沙箱），所有自动化只打在 staging 一次性环境，生产是"只读禁地"，需人工审批。
-
-**Q4：智能体跑偏了怎么办？**
-答：智能体无状态，随时销毁重建，从 Git 仓库当前状态继续，不会丢进度。
-
-**Q5：这套框架能复用吗？**
-答：能。`prompts/` 角色模板、`deploy/` 隔离环境、`.github/workflows` 门禁、`docs/01` 规范文档，都是**项目无关的可复用资产**，新项目复制即用。
-
----
-
-## 5. 快速对照：你的三个疑问 → 框架答案
-
-| 你的疑问 | 框架答案 |
-|---|---|
-| 前端/后端各语言怎么分工？ | 独立前端/后端智能体，各自只改自己目录，严格遵循统一 API 契约 |
-| 测试由编程 AI 还是专业测试 AI？ | 专业独立测试 AI（四眼原则），单元测试除外 |
-| 运维/安全由谁做？ | 独立运维/安全智能体，权限进一步收紧，安全以红队黑盒视角 |
-
----
-
-## 6. 下一步建议
-
-1. **先做 POC**：拿一个中小项目，用 workflow 脚本跑通"需求→架构→编码→测试→部署"最小闭环。
-2. **把门禁做实**：将 workflow 里的 `gatePass()` 占位函数，接上真实的 lint/test/scan 结果。
-3. **沉淀复用资产**：每个项目跑完后，把好用的角色提示词、Mock、runbook 回填进本框架，越用越顺。
-
----
-
-> 完整规范见 [`docs/01-开发规范文档.md`](docs/01-开发规范文档.md)
+**已知待办**：① 真实 e2e 用例（当前无 `tests/e2e/` 时明确跳过，非"通过"）；② 首次验证 Java/.NET/JSP 模板的
+`build/test`（本机无对应工具链）；③ 项目首次 `npm install` 后提交 `package-lock.json`；④ 每个项目跑完后回填复用资产。

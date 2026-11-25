@@ -1,0 +1,12 @@
+# Docker 构建上下文排除（gates 镜像的 context 是项目根）
+node_modules
+dist
+coverage
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+*.log
+.git
+sandbox

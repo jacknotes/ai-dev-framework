@@ -1,6 +1,11 @@
 # CI/CD 流水线：多智能体协同开发的自动门禁
-# 用途：每个阶段自动执行门禁，不通过则阻断合入。
-# 关键：测试/安全/部署全部在"隔离环境"进行，绝不触碰生产。
+#
+# 设计要点：
+#   1. 所有门禁都调用 scripts/*.sh（命令契约，见 docs/04），
+#      保证"本地能过，CI 就能过"，不存在两套口径。
+#   2. 后端按技术栈分流（Go / Python），由仓库实际内容自动判断，
+#      避免"用 react-python 模板却跑 go vet"这种必红的情况。
+#   3. 测试/安全/部署全部在隔离环境进行，绝不触碰生产。
 
 name: AI Dev Pipeline
 
@@ -8,7 +13,8 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop]
+    branches: [develop, main]
+  workflow_dispatch:
 
 # 权限最小化
 permissions:
@@ -20,39 +26,143 @@ env:
   TEST_DB_PASSWORD: test_only_password
 
 jobs:
-  # ---------- 门禁1：前端构建与单测 ----------
-  frontend-check:
-    name: 前端 编译+Lint+单测
+  # ---------- 前置：识别技术栈 ----------
+  detect-stack:
+    name: 识别技术栈
     runs-on: ubuntu-latest
-    defaults:
-      run: { working-directory: frontend }
+    outputs:
+      backend: ${{ steps.detect.outputs.backend }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          # 后端：看哪个标志文件存在
+          if [ -f backend/go.mod ]; then
+            echo "backend=go" >> "$GITHUB_OUTPUT"
+          elif [ -f backend/requirements.txt ]; then
+            echo "backend=python" >> "$GITHUB_OUTPUT"
+          elif [ -f backend/pom.xml ]; then
+            echo "backend=java" >> "$GITHUB_OUTPUT"
+          elif ls backend/*.csproj >/dev/null 2>&1; then
+            echo "backend=dotnet" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=none" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 前端：看 package.json
+          if [ -f frontend/package.json ]; then
+            echo "frontend=node" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=none" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------- 门禁1：前端 编译 + Lint + 单测 ----------
+  frontend-check:
+    name: 前端 Lint+构建+单测
+    runs-on: ubuntu-latest
+    needs: [detect-stack]
+    if: needs.detect-stack.outputs.frontend != 'none'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: npm ci
-      - run: npm run lint          # 门禁：无 error 级告警
-      - run: npm run build         # 门禁：构建成功
-      - run: npm test -- --coverage --coverageThreshold='{"global":{"lines":80}}'  # 门禁：覆盖率达标
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装依赖
+        working-directory: frontend
+        run: |
+          # 模板默认不带 package-lock.json（锁文件会随时间过期，且不同栈维护成本高）。
+          # npm ci 在没有锁文件时会直接失败，所以这里按有无锁文件选择命令：
+          #   有锁文件 → npm ci（可复现，快）
+          #   无锁文件 → npm install（首次会生成锁文件，建议提交回仓库后改用 npm ci）
+          if [ -f package-lock.json ]; then
+            echo "使用 npm ci（检测到 package-lock.json）"
+            npm ci
+          else
+            echo "::warning::未找到 frontend/package-lock.json，降级为 npm install。建议把生成的锁文件提交回仓库以获得可复现构建。"
+            npm install --no-audit --no-fund
+          fi
+      - name: 门禁 lint
+        run: bash scripts/lint.sh
+      - name: 门禁 build
+        run: bash scripts/build.sh
+      - name: 门禁 test（含覆盖率阈值）
+        run: bash scripts/test.sh
 
-  # ---------- 门禁2：后端构建与单测 ----------
-  backend-check:
-    name: 后端 编译+单测
+  # ---------- 门禁2：后端（按栈分流）----------
+  backend-check-go:
+    name: 后端(Go) vet+构建+单测
     runs-on: ubuntu-latest
-    defaults:
-      run: { working-directory: backend }
+    needs: [detect-stack]
+    if: needs.detect-stack.outputs.backend == 'go'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
-      - run: go vet ./...           # 门禁：静态检查
-      - run: go test ./... -cover   # 门禁：单测通过
+        with:
+          go-version: '1.22'
+      - run: bash scripts/lint.sh
+      - run: bash scripts/build.sh
+      - run: bash scripts/test.sh
 
-  # ---------- 门禁3：集成/功能/UI 测试（隔离环境） ----------
+  backend-check-python:
+    name: 后端(Python) lint+构建+单测
+    runs-on: ubuntu-latest
+    needs: [detect-stack]
+    if: needs.detect-stack.outputs.backend == 'python'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          pip install ruff
+      - run: bash scripts/lint.sh
+      - run: bash scripts/build.sh
+      - run: bash scripts/test.sh
+
+  backend-check-java:
+    name: 后端(Java) 校验+构建+单测
+    runs-on: ubuntu-latest
+    needs: [detect-stack]
+    if: needs.detect-stack.outputs.backend == 'java'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: bash scripts/lint.sh
+      - run: bash scripts/build.sh
+      - run: bash scripts/test.sh
+
+  backend-check-dotnet:
+    name: 后端(.NET) 校验+构建+单测
+    runs-on: ubuntu-latest
+    needs: [detect-stack]
+    if: needs.detect-stack.outputs.backend == 'dotnet'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: bash scripts/lint.sh
+      - run: bash scripts/build.sh
+      - run: bash scripts/test.sh
+
+  # ---------- 门禁3：集成 + UI 测试（隔离环境）----------
   integration-test:
     name: 集成+UI 测试（隔离环境）
     runs-on: ubuntu-latest
-    needs: [frontend-check, backend-check]
+    needs: [detect-stack, frontend-check, backend-check-go, backend-check-python, backend-check-java, backend-check-dotnet]
+    # 只要上面的后端任务没有一个失败（被 skip 不算失败）就继续
+    if: always() && !cancelled() && !contains(needs.*.result, 'failure')
     steps:
       - uses: actions/checkout@v4
       - name: 启动隔离测试环境
@@ -60,18 +170,16 @@ jobs:
       - name: 等待服务就绪
         run: |
           for i in $(seq 1 30); do
-            curl -fsS http://localhost:8000/health && break
+            if curl -fsS http://localhost:8000/health; then break; fi
             sleep 2
           done
-      - name: 运行集成测试
-        run: docker compose -f deploy/docker-compose.yml exec -T test-runner pytest /tests/integration
-      - name: 运行 UI 测试
-        run: docker compose -f deploy/docker-compose.yml exec -T test-runner npx playwright test /tests/ui
+      - name: 门禁 e2e（契约入口）
+        run: bash scripts/e2e.sh
       - name: 销毁隔离环境（用完即弃）
         if: always()
         run: docker compose -f deploy/docker-compose.yml down -v
 
-  # ---------- 门禁4：安全扫描（隔离环境） ----------
+  # ---------- 门禁4：安全扫描（隔离环境）----------
   security-scan:
     name: 安全扫描（依赖+容器+Web）
     runs-on: ubuntu-latest
@@ -90,13 +198,20 @@ jobs:
       - name: OWASP ZAP 基线扫描
         run: |
           docker compose -f deploy/docker-compose.yml up -d zap
-          # 调用 ZAP 对 backend 做主动扫描（简化示例）
-          docker compose -f deploy/docker-compose.yml exec -T zap zap-baseline.py -t http://backend:8000 -r zap-report.html
+          docker compose -f deploy/docker-compose.yml exec -T zap \
+            zap-baseline.py -t http://backend:8000 -r zap-report.html
+      - name: 归档扫描报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: zap-report.html
+          if-no-files-found: ignore
       - name: 销毁隔离环境
         if: always()
         run: docker compose -f deploy/docker-compose.yml down -v
 
-  # ---------- 门禁5：性能测试（隔离环境） ----------
+  # ---------- 门禁5：性能测试（隔离环境）----------
   performance-test:
     name: 性能测试（k6）
     runs-on: ubuntu-latest
@@ -105,16 +220,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: 启动环境
         run: docker compose -f deploy/docker-compose.yml up -d --build
-      - name: 运行 k6 压测
+      - name: 等待就绪
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+      - name: 运行 k6 压测（阈值即门禁，不达标 k6 非 0 退出）
         uses: grafana/k6-action@v0.3.1
         with:
           filename: tests/performance/load-test.js
           flags: --vus 50 --duration 30s
+        env:
+          API_BASE_URL: http://localhost:8000
       - name: 销毁环境
         if: always()
         run: docker compose -f deploy/docker-compose.yml down -v
 
-  # ---------- 门禁6：部署到 staging（隔离环境） ----------
+  # ---------- 门禁6：部署到 staging（隔离环境）----------
   deploy-staging:
     name: 部署 staging（隔离环境）
     runs-on: ubuntu-latest
@@ -124,21 +247,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: 构建并部署 staging
         run: docker compose -f deploy/docker-compose.yml up -d --build
-      - name: 健康检查
-        run: curl -fsS http://localhost:8000/health
+      - name: 门禁 health（契约入口）
+        run: bash scripts/health.sh
       - name: 归档 runbook
         uses: actions/upload-artifact@v4
         with:
           name: runbook
           path: docs/runbook.md
+          if-no-files-found: warn      # 首次运行可能尚未产出，不应因此中断
 
-  # ---------- 生产发布：仅手动触发 + 人工审批（不自动上线） ----------
+  # ---------- 生产发布：仅手动触发 + 人工审批（不自动上线）----------
   deploy-prod:
     name: 部署生产（需人工审批）
     runs-on: ubuntu-latest
     needs: [deploy-staging]
     if: github.ref == 'refs/heads/main'
-    environment: production           # GitHub Environment 配置 Required reviewers 实现人工审批
+    environment: production           # 配置 Required reviewers 实现人工审批
     steps:
-      - run: echo "生产发布需在 GitHub Environment 中配置 Required reviewers，人工审批后才会执行"
+      - run: echo "生产发布需在 GitHub Environment 配置 Required reviewers，人工审批后才会执行"
       # 生产部署命令（灰度 + 回滚策略）在此处，绝不自动执行

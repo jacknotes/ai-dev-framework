@@ -1,0 +1,81 @@
+# ============================================================================
+# .NET + Vue 模板 — 隔离环境编排
+#
+# 用途：一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证（框架规范 §7 五重隔离）。
+# 网段 172.34.0.0/24 与 templates/vue-go（172.31）、react-python（172.32）、
+# java-spring（172.33）、jsp-servlet（172.35）互不重叠，可同时并存。
+#
+# 健康检查统一用 127.0.0.1 而非 localhost：
+#   容器内 localhost 会解析到 IPv6 ::1，而服务通常只监听 IPv4，
+#   用 localhost 会得到 "connection refused" 的假失败（实测踩过）。
+# ============================================================================
+
+name: dotnet-sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+    # 隔离网络：容器无外网出口，杜绝误连真实环境
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.34.0.0/24
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      # 仅本地调试开放；纯闭环评审时可直接移除该映射
+      - "8000:8000"
+    environment:
+      - ASPNETCORE_URLS=http://+:8000
+      - ASPNETCORE_ENVIRONMENT=Staging
+      - ENV=staging
+    # ---- 执行沙箱 ----
+    security_opt: [no-new-privileges:true]
+    # 根文件系统只读，防篡改
+    read_only: true
+    tmpfs:
+      # 仅开放必要的可写目录，且不落盘（HOME 亦指向 /tmp）
+      - /tmp
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+        reservations: { cpus: "0.1", memory: 64M }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    networks: [sandbox]
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        # 后端健康后再起前端，避免首屏 502
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Nginx 临时目录必须在可写层
+      - /var/cache/nginx
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128M }
+        reservations: { cpus: "0.1", memory: 32M }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

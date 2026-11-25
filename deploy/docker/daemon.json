@@ -1,0 +1,19 @@
+{
+  "registry-mirrors": [
+    "https://docker.1panel.live"
+  ],
+  "builder": {
+    "gc": {
+      "enabled": true,
+      "defaultKeepStorage": "10GB"
+    }
+  },
+  "features": {
+    "buildkit": true
+  },
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
