@@ -17,6 +17,7 @@ param(
     # 业务代码源目录。省略时自动判断：框架仓库用 templates\<Template>，项目仓库用项目根。
     [string]$SourceRoot,
     [switch]$WithGates,
+    [switch]$WithE2E,
     [switch]$Build
 )
 
@@ -119,6 +120,7 @@ try {
     # --profile 是 compose 子命令的全局选项，必须放在 up 之前
     $upArgs = @('compose','-f',$composeFile)
     if ($WithGates) { $upArgs += @('--profile','gates') }
+    if ($WithE2E)   { $upArgs += @('--profile','e2e') }
     $upArgs += @('up','-d')
 
     $ErrorActionPreference = 'Continue'

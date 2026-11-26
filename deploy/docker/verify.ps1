@@ -50,8 +50,22 @@ function Invoke-InGates {
     $job = Start-Job -ScriptBlock {
         param($compose, $cmd)
         $out = & docker compose -f $compose exec -T gates bash -lc $cmd 2>&1
+
+        # 关键：docker 把日志写到 stderr，PowerShell 会把它包成 ErrorRecord。
+        # 直接 Out-String 会把 PowerShell 的格式化噪音（"+ CategoryInfo"、
+        # "FullyQualifiedErrorId" 等）混进日志和摘要，导致失败原因完全不可读
+        # （实测：摘要变成了 "+ FullyQualifiedErrorId : NativeCommandError"）。
+        # 所以逐条转成纯文本消息。
+        $lines = foreach ($item in $out) {
+            if ($item -is [System.Management.Automation.ErrorRecord]) {
+                $item.Exception.Message
+            } else {
+                [string]$item
+            }
+        }
+
         [pscustomobject]@{
-            Output   = ($out | Out-String)
+            Output   = (($lines -join "`n"))
             ExitCode = $LASTEXITCODE
         }
     } -ArgumentList $ComposeFile, $Command
@@ -125,7 +139,73 @@ Invoke-InGates -Name '编码-单元测试' -Command 'bash scripts/test.sh'
 if ($SkipE2E) {
     Say "`n[e2e] 按参数跳过" Yellow
 } else {
-    Invoke-InGates -Name '验收-e2e' -Command 'bash scripts/e2e.sh'
+    # e2e 必须在**独立的 test-runner 容器**里跑：
+    #   gates 容器没有浏览器，且它也不在需要 Playwright 的语境里。
+    #   先确保 test-runner 已起（profile: e2e），再在其中执行。
+    Say "`n==> 准备 e2e 执行器" Cyan
+    & docker compose -f $ComposeFile --profile e2e up -d test-runner 2>&1 |
+        ForEach-Object { Say "    $_" DarkGray }
+
+    $runnerUp = $false
+    for ($i = 1; $i -le 30; $i++) {
+        & docker compose -f $ComposeFile exec -T test-runner bash -lc 'true' 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) { $runnerUp = $true; break }
+        Start-Sleep -Seconds 2
+    }
+
+    if (-not $runnerUp) {
+        Say "[验收-e2e] 失败：test-runner 容器不可用" Red
+        [void]$results.Add([pscustomobject]@{ Gate='验收-e2e'; ExitCode=1; Passed=$false; Summary='test-runner 容器不可用' })
+    } else {
+        Say "    test-runner 就绪 ✔" Green
+        $marker = "[验收-e2e]"
+        Say "`n$marker 在 test-runner 容器内执行 Playwright" Cyan
+
+        # 为什么在 test-runner 而不是 gates：
+        #   gates 容器没有浏览器，跑不了 Playwright；test-runner 才有。
+        #
+        # 为什么要把退出码用 `echo EXIT=$?` 单独打出来：
+        #   PowerShell 经过管道（| ForEach-Object）后 $LASTEXITCODE 会被后续命令覆盖，
+        #   直接读它会得到错误结论（实测：e2e 明明失败，却读到 0）。
+        #   用 bash 显式回显退出码，再从输出里解析，才能拿到真实值。
+        $e2eCmd = 'cd /tests && npx --no-install playwright test > /tmp/e2e.log 2>&1; echo "EXIT_CODE=$?"; tail -40 /tmp/e2e.log'
+        $raw = & docker compose -f $ComposeFile exec -T test-runner bash -lc $e2eCmd 2>&1
+
+        $e2eCode = 1
+        foreach ($line in $raw) {
+            if ($line -match '^EXIT_CODE=(\d+)\s*$') { $e2eCode = [int]$Matches[1] }
+        }
+
+        # 打印日志（去掉那行标记）
+        foreach ($line in $raw) {
+            if ($line -match '^EXIT_CODE=\d+\s*$') { continue }
+            if ($line -match '✘|failed|Error:') { Say "    $line" Red }
+            elseif ($line -match '✓|passed') { Say "    $line" DarkGray }
+            else { Say "    $line" DarkGray }
+        }
+
+        $passed = ($e2eCode -eq 0)
+        if ($passed) { Say "$marker 通过 (exit=0)" Green }
+        else { Say "$marker 失败 (exit=$e2eCode)" Red }
+
+        # 失败摘要要能直接看懂：从 Playwright 输出里抽出失败用例名与通过/失败计数
+        $summary = '通过'
+        if (-not $passed) {
+            $failedTitles = @($raw | Where-Object { $_ -match '✘|✗' } | ForEach-Object { $_.Trim() })
+            $counts = @($raw | Where-Object { $_ -match '\d+\s+(passed|failed)' } | ForEach-Object { $_.Trim() })
+            $piece = @()
+            if ($counts.Count -gt 0) { $piece += ($counts -join ' ') }
+            if ($failedTitles.Count -gt 0) { $piece += ($failedTitles[0]) }
+            $summary = if ($piece.Count -gt 0) { $piece -join ' | ' } else { "exit=$e2eCode" }
+        }
+
+        [void]$results.Add([pscustomobject]@{
+            Gate='验收-e2e'
+            ExitCode=$e2eCode
+            Passed=$passed
+            Summary=$summary
+        })
+    }
 }
 
 # 健康检查走容器网络内部（backend 服务名）

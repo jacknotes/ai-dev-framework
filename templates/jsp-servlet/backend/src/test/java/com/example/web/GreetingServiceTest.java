@@ -134,7 +134,11 @@ class GreetingServiceTest {
 
         assertAll(
                 () -> assertEquals(first, second, "同样的输入应得到同样的输出"),
-                () -> assertDoesNotThrow(service::greet, "重复调用不应抛出异常")
+                // 注意：不能用 service::greet —— greet() 有两个重载
+                //（无参与 greet(String)），方法引用会在
+                // Executable 与 ThrowingSupplier 之间产生歧义（实测编译失败）。
+                // 用显式 lambda 消除歧义。
+                () -> assertDoesNotThrow(() -> service.greet(), "重复调用不应抛出异常")
         );
     }
 }

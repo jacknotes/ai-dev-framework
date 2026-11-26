@@ -1,5 +1,7 @@
 # 框架仓库自身的忽略规则
 # 注意：templates/ 下另有各自的 .gitignore，用于被复制成新项目后生效。
+# 本文件要覆盖"模板里跑一次门禁就会产生"的所有产物，
+# 否则 git status 会被构建垃圾刷屏，且容易误提交。
 
 # 编辑器
 .vscode/
@@ -18,11 +20,36 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+htmlcov/
+.coverage
 
 # Node
 node_modules/
 dist/
 coverage/
+*.tsbuildinfo
+
+# 测试产物
+test-results/
+playwright-report/
+e2e-results.json
+
+# Java / Maven
+target/
+*.jar
+*.war
+*.class
+
+# .NET
+bin/
+obj/
+TestResults/
+*.trx
+
+# Go
+*.exe
+*.test
+*.out
 
 # 系统
 .DS_Store

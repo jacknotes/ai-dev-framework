@@ -18,13 +18,28 @@ onMounted(async () => {
 <template>
   <main class="app">
     <h1>.NET + Vue 最小示例工程</h1>
-    <p class="stack">ASP.NET Core 8 Minimal API · C# 12 · Vue 3 + TypeScript</p>
+    <p class="stack">
+      ASP.NET Core 8 Minimal API · C# 12 · Vue 3 + TypeScript
+    </p>
 
-    <p v-if="greeting" class="greeting">
+    <p
+      v-if="greeting"
+      class="greeting"
+    >
       {{ greeting.message }} <span class="time">({{ greeting.time }})</span>
     </p>
-    <p v-else-if="error" class="error">{{ error }}</p>
-    <p v-else class="loading">加载中…</p>
+    <p
+      v-else-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
+    <p
+      v-else
+      class="loading"
+    >
+      加载中…
+    </p>
   </main>
 </template>
 

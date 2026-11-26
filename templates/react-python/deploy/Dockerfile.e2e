@@ -1,0 +1,50 @@
+# e2e 测试执行器镜像
+#
+# 为什么需要自定义镜像（不能直接用官方 playwright 镜像）：
+#   1. 官方镜像只有浏览器，没有 @playwright/test 这个 npm 包，
+#      直接跑 `npx playwright test` 会尝试联网下载，而沙箱是 internal 网络（无外网）。
+#   2. 官方镜像的 tag 必须带完整补丁号（v1.44.0-jammy），
+#      写成 v1.44-jammy 会报 "not found"（实测踩过）。
+#
+# 设计：基于官方镜像（复用其已装好的浏览器与系统依赖），
+#       再在**构建期**（有网）把 @playwright/test 装到全局，
+#       运行期零联网即可执行。
+#
+# 构建上下文是项目根（compose 里 context: ..）。
+
+FROM mcr.microsoft.com/playwright:v1.44.0-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CI=1
+
+# 构建期装测试运行器（版本与基础镜像的浏览器保持一致）
+RUN npm install -g @playwright/test@1.44.0 \
+ && npm cache clean --force
+
+WORKDIR /tests
+
+# 校验：1) 运行器可用 2) 全局包装在预期位置
+RUN npx --no-install playwright --version \
+ && npm root -g
+
+# 关键：@playwright/test 装在全局，但 playwright.config.ts 里
+# `import { defineConfig } from '@playwright/test'` 是按**相对 /tests 的 Node 解析规则**
+# 查找的，包装在 /usr/lib/node_modules 时解析不到，会报
+# "Cannot find module '@playwright/test'"（实测踩过）。设 NODE_PATH 也无效。
+#
+# 解法：给 /tests 一个 node_modules 指向全局。
+#   注意 **必须放在 entrypoint 里做**，不能在 Dockerfile 里建软链——
+#   因为 compose 会把宿主的 tests/e2e 目录 bind mount 到 /tests，
+#   挂载会**遮蔽**镜像内的 /tests 内容（包括软链），构建期建的软链会消失。
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'if [ -d /tests ] && [ ! -e /tests/node_modules ]; then' \
+    '  ln -sfn "$(npm root -g)" /tests/node_modules' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/e2e-entrypoint.sh \
+ && chmod +x /usr/local/bin/e2e-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/e2e-entrypoint.sh"]
+CMD ["sleep", "infinity"]

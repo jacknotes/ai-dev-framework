@@ -94,18 +94,26 @@ services:
     command: ["sleep", "infinity"]
 
   # ---------- 测试执行器（Playwright，可选，profile: e2e）----------
+  # 平台差异说明：官方 playwright 镜像 tag 必须带完整补丁号，
+  #   写成 v1.44-jammy 会 not found（实测），因此自建镜像（见 Dockerfile.e2e），
+  #   在构建期把 @playwright/test 装好，运行期无需联网。
   test-runner:
-    image: mcr.microsoft.com/playwright:v1.44-jammy
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.e2e
     profiles: [e2e]
     networks: [sandbox]
     working_dir: /tests
     volumes:
-      - ../tests:/tests
+      - ../tests/e2e:/tests
     environment:
       - TEST_BASE_URL=http://frontend
       - API_BASE_URL=http://backend:8000
+      - CI=1
     depends_on:
       backend:
+        condition: service_healthy
+      frontend:
         condition: service_healthy
     security_opt: [no-new-privileges:true]
     command: ["sleep", "infinity"]
