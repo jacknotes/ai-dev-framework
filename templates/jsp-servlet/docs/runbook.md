@@ -25,7 +25,7 @@ graph TB
         CLI["运维命令<br/>scripts/*.sh"]
     end
 
-    subgraph "Docker 网络 jsp-servlet-sandbox（internal: true）"
+    subgraph "Docker 网络 jsp-servlet-sandbox（端口只绑 127.0.0.1）"
         C["backend 容器<br/>tomcat:10.1-jdk17-temurin<br/>UID 1000 (tomcat)<br/>read_only + tmpfs"]
     end
 

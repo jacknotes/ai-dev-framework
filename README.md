@@ -136,11 +136,17 @@ powershell -ExecutionPolicy Bypass -File tools\verify-framework.ps1
 
 ---
 
-## 5. 当前状态（v1.2）
+## 5. 当前状态（v1.3）
 
-核心能力均已落地：门禁真实退出码判定（P0）、编排补 e2e 且带失败重试（P0）、五入口契约 25 个脚本（P1）、
-CI 技术栈分流 + 锁文件降级（P1）、多技术栈模板（P2）、`tools/new-project.ps1` 一键建项目、`tools/verify-framework.ps1` 自检、
-`deploy/docker` + `deploy/local` 两套隔离环境、框架与模板双 `.gitattributes` 换行符锁定、框架级与项目级 `AGENTS.md`。
+核心能力均已落地：门禁真实退出码判定 + 失败退回重试、五入口契约 25 个脚本、CI 技术栈自动分流、
+5 套技术栈模板、`tools/new-project.ps1` 一键建项目、`tools/verify-framework.ps1` 自检、
+`deploy/docker` + `deploy/local` 两套隔离环境、框架与模板双 `AGENTS.md`（含对话式开工引导协议）。
+
+**v1.3 新增**：
+- **团队预设三档**（quickfix/feature/full）——按任务规模裁剪智能体，小修复不必全员上阵；
+- **对话式开工引导**——说需求 → 推荐模板 → 选档位 → 引导 git → 环境就绪 → 说"开始"，全流程对话完成；
+- **服务本机可访问**——全部端口发布到 `127.0.0.1`（前端 13000 / 后端 18080 / DB 15432），
+  移除 `internal: true`（实测它会让 ports 发布失效）；隔离防"生产与局域网"，不防"本机用户"。
 
 **已知待办**：① 真实 e2e 用例（当前无 `tests/e2e/` 时明确跳过，非"通过"）；② 首次验证 Java/.NET/JSP 模板的
 `build/test`（本机无对应工具链）；③ 项目首次 `npm install` 后提交 `package-lock.json`；④ 每个项目跑完后回填复用资产。

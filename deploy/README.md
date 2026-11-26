@@ -67,8 +67,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1 -SkipVeri
 | 维度 | Docker 方案（推荐） | 本机方案（降级） |
 |---|---|---|
 | 前置 | Docker Desktop + WSL2 | Git Bash + Python 3.10+ |
-| 环境隔离 | 一次性容器，internal 网络 | 一次性 `sandbox/` 目录 + 独立 venv |
-| 网络 | 容器无法访问外网、不发布端口 | 只监听 `127.0.0.1` |
+| 环境隔离 | 一次性容器 + 独立网段 | 一次性 `sandbox/` 目录 + 独立 venv |
+| 网络 | 服务端口只绑 `127.0.0.1`（本机可访问，局域网不可达） | 只监听 `127.0.0.1` |
 | 数据 | 只读根文件系统 + tmpfs，不落盘 | 数据全在 `sandbox/data`，`down` 即删 |
 | 资源限额 | CPU/内存硬限额 | 无法限 CPU/内存 |
 | 防恶意代码 | ✅ 容器边界 | ❌ 不防（只防污染、误连真实服务） |

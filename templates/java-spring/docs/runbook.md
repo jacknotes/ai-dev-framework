@@ -16,7 +16,7 @@
 
 ```
 宿主机
-└── Docker 网络 java-spring-sandbox（172.33.0.0/24，internal: true，不出网）
+└── Docker 网络 java-spring-sandbox（172.33.0.0/24，端口只绑 127.0.0.1）
     ├── frontend  Nginx :80   → 静态资源 + /api 反代
     └── backend   Spring Boot :8000 → /health、/api/v1/greeting
 ```

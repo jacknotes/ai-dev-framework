@@ -83,7 +83,7 @@ curl http://localhost:8000/api/v1/greeting
 docker compose down -v                 # 用完即销毁，数据不留痕
 ```
 
-隔离要点：`internal: true` 独立网段 `172.34.0.0/24`、`read_only` + `no-new-privileges`、
+隔离要点：独立网段 `172.34.0.0/24`、端口只绑 `127.0.0.1`、`read_only` + `no-new-privileges`、
 CPU/内存限额、无生产凭证、无真实数据。
 
 ## 运行测试（对应框架门禁）

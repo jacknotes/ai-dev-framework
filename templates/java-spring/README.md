@@ -72,7 +72,7 @@ curl http://localhost:8000/health   # 后端健康检查
 docker compose down -v              # 用完即销毁
 ```
 
-沙箱网络为 `172.33.0.0/24`，`internal: true` 不出网；容器非 root、根文件系统只读、`no-new-privileges`，并带资源限额与健康检查。
+沙箱网络为 `172.33.0.0/24`，端口只绑 `127.0.0.1`；容器非 root、根文件系统只读、`no-new-privileges`，并带资源限额与健康检查。
 
 ## 运行测试（对应框架门禁）
 

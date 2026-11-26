@@ -167,7 +167,7 @@ CREATE TABLE greeting (
 | 安全（容器） | 非 root 用户 `tomcat`（UID 1000）运行；根文件系统 `read_only`；`tmpfs` 挂 `/tmp` 与 Tomcat 工作目录 | `Dockerfile` + `deploy/docker-compose.yml` |
 | 安全（应用） | 异常不向响应体输出堆栈；`Content-Type` 显式声明并带 `charset=UTF-8`；不反射用户输入到 HTML | `GreetingServlet`、`index.jsp` |
 | 安全（依赖） | 依赖面极小（仅 servlet/jsp API 为 `provided`，不进产物）；无第三方运行时依赖 | `pom.xml` |
-| 网络 | Compose 网络 `internal: true` + `172.35.0.0/24`；仅映射 `8080` 供本地调试 | `deploy/docker-compose.yml` |
+| 网络 | Compose 独立网段 `172.35.0.0/24`；端口只绑 `127.0.0.1` | `deploy/docker-compose.yml` |
 | 资源 | `cpus: "1.0"`、`memory: 512M`；JVM 通过 `CATALINA_OPTS` 限制堆，避免容器 OOM | compose + Dockerfile |
 | 可观测 | `/health` 供探针；容器 `HEALTHCHECK` 每 15s 一次；Tomcat 访问日志走 stdout | `Dockerfile`、`runbook.md` §5 |
 | 启动时间 | 无数据库、无外部依赖，冷启动目标 ≤ 60s | 实测见 `runbook.md` |
@@ -193,7 +193,7 @@ CREATE TABLE greeting (
 
 ```mermaid
 graph LR
-    subgraph "Docker 网络 jsp-servlet-sandbox（internal: true, 172.35.0.0/24）"
+    subgraph "Docker 网络 jsp-servlet-sandbox（172.35.0.0/24，端口只绑 127.0.0.1）"
         B["backend 容器<br/>tomcat:10.1-jdk17-temurin<br/>非 root / read_only<br/>8080"]
     end
     H["宿主机 127.0.0.1"] -->|"8080:8080"| B

@@ -24,7 +24,7 @@ graph TB
         U["浏览器 / curl / 门禁脚本"]
     end
 
-    subgraph sandbox["隔离网络 sandbox（172.34.0.0/24 · internal: true）"]
+    subgraph sandbox["隔离网络 sandbox（172.34.0.0/24 · 端口只绑 127.0.0.1）"]
         FE["frontend 容器<br/>Nginx :80<br/>静态产物 + /api 反代"]
         BE["backend 容器<br/>ASP.NET Core :8000<br/>Minimal API"]
     end
@@ -105,7 +105,7 @@ graph TB
 |---|---|
 | 安全 | 后端容器以非 root 用户 `appuser` 运行；`read_only: true` + `tmpfs: /tmp`；`no-new-privileges:true`；无密钥入库，环境变量仅注入 `ASPNETCORE_URLS` / `ENV` |
 | 资源限额 | backend `cpus 0.5 / memory 256M`，frontend `cpus 0.5 / memory 128M` |
-| 网络隔离 | compose 网络 `internal: true`，独立网段 `172.34.0.0/24`，不与宿主其他项目互通 |
+| 网络隔离 | 独立网段 `172.34.0.0/24`，不与宿主其他项目互通；端口只绑 `127.0.0.1`，局域网不可达 |
 | 健康检查 | 容器内 `HEALTHCHECK` 每 10s 探测 `/health`；编排另加 `depends_on` 顺序保证 |
 | 可观测性 | 后端输出标准输出日志（容器日志采集即可）；`/health` 作为存活指标 |
 | 性能 | Minimal API 无中间件冗余；单实例冷启动 < 2s；本示例不设 SLA，压测门禁留待业务项目补充 |

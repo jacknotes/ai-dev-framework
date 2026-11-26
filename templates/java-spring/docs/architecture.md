@@ -105,7 +105,7 @@ record Greeting(String message, String time)  // time = Instant.now().toString()
 
 ### 6.2 网络隔离
 
-- Compose 网络 `internal: true`，容器不可访问外网，只在 `172.33.0.0/24` 内互通。
+- Compose 独立网段 `172.33.0.0/24` 内互通；服务端口只绑 `127.0.0.1`，局域网不可达。
 - 仅映射 8000/80 到宿主机供本地调试；纯闭环场景可删除 `ports`。
 
 ### 6.3 资源与稳定性
