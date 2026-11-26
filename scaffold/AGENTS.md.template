@@ -90,7 +90,17 @@ bash scripts/lint.sh && bash scripts/build.sh && bash scripts/test.sh
 
 ## 5. 隔离环境（不碰真实环境）
 
-**优先用 Docker（真沙箱）**：
+> **先确认，再安装。** 读到 `deploy/README.md` 后，先向用户确认是否安装测试环境，用户同意后再执行。
+
+**一键安装（推荐）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1
+```
+
+自动探测工具链、选择后端、装资源、启动、跑五道门禁，退出码即结论。详见 `deploy/README.md`。
+
+**分步执行（优先用 Docker，真沙箱）**：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File deploy\docker\setup.ps1    # 首次：配镜像加速器 + 校验 WSL2
