@@ -77,6 +77,8 @@ $assets = @(
     'docs\04-门禁与命令契约.md',
     'docs\00-快速开始.md',
     'pipeline\pipeline.workflow.js',
+    'deploy\install.ps1',
+    'deploy\README.md',
     'deploy\docker-compose.yml',
     'deploy\local\setup.ps1',
     'deploy\local\up.ps1',

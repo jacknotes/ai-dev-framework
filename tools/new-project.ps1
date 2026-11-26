@@ -83,7 +83,14 @@ if (Test-Path $ghSrc) {
     Say "    .github/（CI + Issue/PR 模板）" Green
 }
 
-# 隔离环境：docker（推荐）+ local（无 Docker 降级）
+# 隔离环境：一键安装入口 + 部署方法手册 + docker（推荐）+ local（无 Docker 降级）
+foreach ($f in @('install.ps1', 'README.md')) {
+    $src = Join-Path $FrameworkRoot "deploy\$f"
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $Path "deploy\$f") -Force
+        Say "    deploy/$f" Green
+    }
+}
 foreach ($sub in @('docker', 'local')) {
     $src = Join-Path $FrameworkRoot "deploy\$sub"
     if (Test-Path $src) {

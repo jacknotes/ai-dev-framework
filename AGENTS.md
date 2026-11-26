@@ -95,6 +95,9 @@ powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 我的项�
 生成的是**独立的新仓库**，自带 `AGENTS.md`、`docs/`、五入口 `scripts/`、CI、隔离环境。
 详见 `docs/00-快速开始.md`。
 
+**测试环境一键安装**：读到 `deploy/README.md` 后先向用户确认，同意后再执行
+`powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1`（探测工具链 → 选后端 → 装资源 → 五道门禁）。
+
 ---
 
 ## 7. 提交规范
