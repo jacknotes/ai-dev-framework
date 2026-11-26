@@ -2,7 +2,7 @@
 # Java + Spring Boot 模板 — 隔离环境编排
 #
 # 用途：一键启动前端 + 后端，网络隔离、无真实数据、无生产凭证。
-# 说明：网络 internal: true 表示容器只能内网互通，不能访问外网；
+# 说明：网络独立网段；端口只绑 127.0.0.1（本机可访问，局域网不可达）；
 #       端口映射仅供本地调试。
 # 网段 172.33.0.0/24 与既有模板互不重叠，可同时 up。
 #
@@ -17,7 +17,6 @@ networks:
   sandbox:
     driver: bridge
     # 封闭网络：不出网，符合框架"网络隔离"要求
-    internal: true
     ipam:
       config:
         - subnet: 172.33.0.0/24
@@ -31,7 +30,7 @@ services:
     networks: [sandbox]
     ports:
       # 仅本地调试开放；纯闭环可移除
-      - "8000:8000"
+      - "127.0.0.1:18080:8000"
     environment:
       - PORT=8000
       - ENV=staging
@@ -61,7 +60,7 @@ services:
     container_name: java-spring-frontend
     networks: [sandbox]
     ports:
-      - "80:80"
+      - "127.0.0.1:13000:80"
     depends_on:
       backend:
         condition: service_healthy

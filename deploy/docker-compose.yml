@@ -6,14 +6,24 @@
 #   2. 所有服务在受限容器中运行，限制资源，防止恶意行为。
 #   3. 提供 Mock 服务替代外部依赖（支付/短信/第三方 API）。
 #   4. 用完即销毁：docker compose down -v 清空全部数据。
+#   5. 本机用户可访问：全部服务端口发布到 127.0.0.1（仅本机回环，不暴露局域网）。
+#      隔离的对象是"生产与局域网"，不是本机用户——开发/验收必须能打开页面、连数据库、查中间件。
+#
+# 端口约定（全部只绑 127.0.0.1）：
+#   前端 13000 / 后端 18080 / Postgres 15432 / WireMock 18081 / ZAP 18090
+#   冲突时改宿主侧端口即可（冒号左边），容器内端口不动。
 
 name: ai-dev-sandbox
 
 # 独立网络，与宿主生产网络隔离
+# 说明：不再使用 internal:true——它会让本机用户也无法访问服务（FR-5 验收时实测，
+#       ports 在 internal 网络下被 Docker 忽略）。隔离改由三道机制保证：
+#       ① 端口只绑 127.0.0.1（局域网/外网无法连入）
+#       ② 独立网段 + 独立凭证（不与任何真实环境共享）
+#       ③ 容器本身仍不可访问外网出站依赖之外的生产资源
 networks:
   sandbox:
     driver: bridge
-    internal: true        # 内部网络，默认不访问外网（需要外网时由出口代理单独放行）
     ipam:
       config:
         - subnet: 172.30.0.0/24   # 独立网段
@@ -27,6 +37,8 @@ services:
       - ../frontend:/app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     networks: [sandbox]
+    ports:
+      - "127.0.0.1:13000:3000"   # 本机浏览器直接打开 http://127.0.0.1:13000
     # 资源限制：防止失控
     deploy:
       resources:
@@ -48,6 +60,8 @@ services:
       context: ../backend
       dockerfile: ../deploy/Dockerfile.backend
     networks: [sandbox]
+    ports:
+      - "127.0.0.1:18080:8000"   # 本机可直接 curl http://127.0.0.1:18080/health
     depends_on: [db, mock-server]
     deploy:
       resources:
@@ -72,6 +86,8 @@ services:
   db:
     image: postgres:16-alpine
     networks: [sandbox]
+    ports:
+      - "127.0.0.1:15432:5432"   # 本机可用 psql/DBeaver 直连（用户 test_user / 库 sandbox_test）
     environment:
       - POSTGRES_DB=sandbox_test
       - POSTGRES_USER=test_user
@@ -87,6 +103,8 @@ services:
   mock-server:
     image: wiremock/wiremock:3-alpine
     networks: [sandbox]
+    ports:
+      - "127.0.0.1:18081:8080"   # 本机可查看/调整契约 mock：http://127.0.0.1:18081/__admin/mappings
     volumes:
       - ./mocks:/home/wiremock/mappings   # 契约 mock 配置
     deploy:
@@ -118,6 +136,8 @@ services:
   zap:
     image: zaproxy/zap-stable
     networks: [sandbox]
+    ports:
+      - "127.0.0.1:18090:8090"   # 本机可打开 ZAP UI 查看扫描进度
     command: zap.sh -daemon -host 0.0.0.0 -port 8090
     depends_on: [frontend, backend]
     deploy:

@@ -95,8 +95,16 @@ powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 我的项�
 生成的是**独立的新仓库**，自带 `AGENTS.md`、`docs/`、五入口 `scripts/`、CI、隔离环境。
 详见 `docs/00-快速开始.md`。
 
+**对话式引导协议（用户在框架仓库会话中表达开发意图时，按此引导）：**
+
+1. **听需求 → 推荐模板**：用户描述想做什么，对照 `templates/` 下 5 套技术栈（react-python/vue-go/java-spring/dotnet/jsp-servlet）推荐最合适的一套并说明理由，**用户确认后**才执行 `new-project.ps1` 生成；
+2. **引导到新项目**：生成后告诉用户"到新项目目录的 agent 会话中继续"，项目级 `AGENTS.md` 已内置开工引导协议（介绍项目 → 选团队档位 → 初始化 git → 环境就绪检查）；
+3. **不代做**：框架会话不代替用户在新项目里做决定——档位选择、git 初始化、环境安装都由新项目会话引导用户逐步确认。
+
 **测试环境一键安装**：读到 `deploy/README.md` 后先向用户确认，同意后再执行
 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1`（探测工具链 → 选后端 → 装资源 → 五道门禁）。
+
+**可访问性约定**：所有服务端口发布在 **127.0.0.1**（前端 13000 / 后端 18080 / DB 15432 / Mock 18081 / ZAP 18090，实际以各模板 compose 为准）。隔离防的是"生产与局域网"，不是"本机用户"——`internal: true` 已移除（实测它会让 ports 发布失效，本机用户反而无法访问）。
 
 ---
 

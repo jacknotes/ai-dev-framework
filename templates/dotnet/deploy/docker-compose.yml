@@ -16,7 +16,6 @@ networks:
   sandbox:
     driver: bridge
     # 隔离网络：容器无外网出口，杜绝误连真实环境
-    internal: true
     ipam:
       config:
         - subnet: 172.34.0.0/24
@@ -29,7 +28,7 @@ services:
     networks: [sandbox]
     ports:
       # 仅本地调试开放；纯闭环评审时可直接移除该映射
-      - "8000:8000"
+      - "127.0.0.1:18080:8000"
     environment:
       - ASPNETCORE_URLS=http://+:8000
       - ASPNETCORE_ENVIRONMENT=Staging
@@ -58,7 +57,7 @@ services:
       dockerfile: Dockerfile
     networks: [sandbox]
     ports:
-      - "80:80"
+      - "127.0.0.1:13000:80"
     depends_on:
       backend:
         # 后端健康后再起前端，避免首屏 502

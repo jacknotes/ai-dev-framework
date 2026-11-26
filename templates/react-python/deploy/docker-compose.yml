@@ -16,7 +16,6 @@ name: react-python-sandbox
 networks:
   sandbox:
     driver: bridge
-    internal: true
     ipam:
       config:
         - subnet: 172.32.0.0/24

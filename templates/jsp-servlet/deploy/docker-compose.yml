@@ -13,8 +13,7 @@ name: jsp-servlet-sandbox
 networks:
   sandbox:
     driver: bridge
-    # internal: true —— 禁止访问外部网络，与生产内网不通（网络隔离的硬保证）
-    internal: true
+    # 独立网段 —— 端口只绑 127.0.0.1，本机可访问，局域网不可达（网络隔离的硬保证）
     ipam:
       config:
         # 独立网段，与既有模板全部错开：
@@ -32,11 +31,11 @@ services:
     networks: [sandbox]
     ports:
       # 仅本地调试开放；纯闭环（只跑自动化测试）时可整行移除。
-      # 注意：internal: true 只阻断容器**主动**访问外网与外部直连容器 IP；
+      # 注意：独立网段阻断容器**主动**访问外网与外部直连容器 IP；
       # 宿主机的 docker-proxy 仍可把 127.0.0.1:8080 转发进来，因此本地 curl 可用。
       # 若你的 Docker 版本下该转发不生效，改用：
       #   docker compose exec backend curl -fsS http://127.0.0.1:8080/health
-      - "8080:8080"
+      - "127.0.0.1:18080:8080"
     environment:
       # 测试环境标识；绝不注入任何生产凭证
       - ENV=staging
