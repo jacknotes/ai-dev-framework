@@ -1,7 +1,7 @@
 # AI 多智能体协同开发框架 — 使用说明
 
 > **框架名称**：AI-Dev-Framework（AI 多智能体协同开发闭环框架）
-> **版本**：v1.2
+> **版本**：v1.3
 > **目标**：让 AI 工具自动完成「编程 → 测试 → 部署 → 交付」，极少人工干预，并形成规范文档。
 > **当模板用（一条命令）**：`powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 项目名 -Stack react-python -Path D:\ai\项目名`
 > **第一次用**：直接看 [`docs/00-快速开始.md`](docs/00-快速开始.md)（5 分钟上手）。
