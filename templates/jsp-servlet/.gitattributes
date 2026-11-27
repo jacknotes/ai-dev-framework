@@ -1,4 +1,4 @@
-﻿# 换行符与文本属性（必须存在，否则 .sh 在 Windows 上会变 CRLF）
+# 换行符与文本属性（必须存在，否则 .sh 在 Windows 上会变 CRLF）
 #
 # 为什么必须：Windows 的 git 默认 core.autocrlf=true，会把 .sh 检出成 CRLF，
 # bash 读到 CRLF 会报 $'\r': command not found，
