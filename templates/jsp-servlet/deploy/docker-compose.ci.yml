@@ -1,0 +1,37 @@
+# ============================================================================
+# CI 专用 compose 覆盖文件（jsp-servlet）—— 仅在 GitHub Actions 中与主文件叠加使用：
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.ci.yml ...
+#
+# 为什么单独放一个文件，而不是改主 compose：
+#   1. 主 compose 的默认形态保持"本地调试"原样（含 127.0.0.1:18080→8080 端口发布），
+#      覆盖文件只补 CI 需要的服务，不改变本地行为；
+#   2. CI 需要的 zap 执行器在 compose 网络内运行，不额外发布端口。
+#      主 compose 从未定义 zap 服务（5 套模板的同源缺陷），原 workflow 直接
+#      `docker compose up -d zap` 必败。本模板没有 tests/performance 脚本，
+#      因此不定义 k6 服务（workflow 对无脚本的栈会跳过性能门禁）。
+#   3. 路径解析规则（compose 多 -f 的约定）：所有相对路径相对**第一个** -f 文件
+#      所在目录解析（即 deploy/），因此 ./.. = 项目根。
+#
+# 端口说明：本模板是"页面与接口同源"的单服务栈，backend 内部端口为 **8080**
+# （不是其他模板的 8000），workflow 里 ZAP 目标按栈选择 http://backend:8080。
+# ============================================================================
+
+services:
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    # profile: 只在显式 --profile zap 时启动，避免其他 job 误拉 1GB+ 镜像
+    profiles: [zap]
+    networks: [sandbox]
+    # 关闭镜像默认 entrypoint（zap.sh 自启动），否则 up -d 时会反复重启；
+    # 但清空 entrypoint 后必须有常驻进程，否则容器立即退出，
+    # 后续 docker compose exec 会因"服务未运行"而失败
+    entrypoint: []
+    command: ["sleep", "infinity"]
+    # zap-baseline.py 的 -r 报告写到 CWD；挂载项目根 → 报告直接落在 workspace 可归档
+    working_dir: /zap/wrk
+    volumes:
+      - ./..:/zap/wrk
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 2G }

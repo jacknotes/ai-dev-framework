@@ -1,0 +1,54 @@
+# ============================================================================
+# CI 专用 compose 覆盖文件（vue-go）—— 仅在 GitHub Actions 中与主文件叠加使用：
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.ci.yml ...
+#
+# 为什么单独放一个文件，而不是改主 compose：
+#   1. 主 compose 的默认形态保持"本地调试"原样（含 127.0.0.1:18080 端口发布），
+#      覆盖文件只补 CI 需要的服务，不改变本地行为；
+#   2. CI 需要的两个执行器全部在 compose 网络内运行，不额外发布端口：
+#        - zap：OWASP ZAP 基线扫描。主 compose 从未定义 zap 服务（5 套模板的
+#          同源缺陷），原 workflow 直接 `docker compose up -d zap` 必败。
+#        - k6：性能压测。本模板有 tests/performance/load-test.js 但主 compose
+#          没有 k6/test-runner 服务；grafana/k6-action 的容器连不上 runner
+#          宿主机 localhost（ticket-system 实测 78447 个请求全部秒失败、
+#          data_received=0B），因此 k6 必须作为 compose 服务入网，
+#          打点服务名 http://backend:8000。
+#   3. 路径解析规则（compose 多 -f 的约定）：所有相对路径相对**第一个** -f 文件
+#      所在目录解析（即 deploy/），因此 ./.. = 项目根、../tests = 项目根/tests。
+#
+# ZAP 目标端口说明：本模板 backend 内部端口为 8000，workflow 直接打
+# http://backend:8000（jsp-servlet 是 8080，由 workflow 按栈选择）。
+# ============================================================================
+
+services:
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    # profile: 只在显式 --profile zap 时启动，避免其他 job 误拉 1GB+ 镜像
+    profiles: [zap]
+    networks: [sandbox]
+    # 关闭镜像默认 entrypoint（zap.sh 自启动），否则 up -d 时会反复重启；
+    # 但清空 entrypoint 后必须有常驻进程，否则容器立即退出，
+    # 后续 docker compose exec 会因"服务未运行"而失败
+    entrypoint: []
+    command: ["sleep", "infinity"]
+    # zap-baseline.py 的 -r 报告写到 CWD；挂载项目根 → 报告直接落在 workspace 可归档
+    working_dir: /zap/wrk
+    volumes:
+      - ./..:/zap/wrk
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 2G }
+
+  k6:
+    image: grafana/k6:0.51.0
+    profiles: [perf]
+    networks: [sandbox]
+    # 保留镜像原 entrypoint（它就是 /k6 可执行文件本身）：
+    # 实测清空 entrypoint 后 `run /scripts/...` 找不到命令（exit 1）。
+    # workflow 里用 `compose run --rm k6 run ...`，run 会把参数接到 entrypoint 后。
+    volumes:
+      - ../tests/performance:/scripts:ro
+    environment:
+      # load-test.js 读取 __ENV.API_BASE_URL；服务名打点，不经宿主机端口
+      - API_BASE_URL=http://backend:8000
