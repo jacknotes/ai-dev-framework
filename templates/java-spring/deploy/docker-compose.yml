@@ -81,3 +81,32 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # ---------- 门禁执行器（可选，profile: gates）----------
+  # Maven 3.9 + Temurin 21 + Node 三工具链，五道门禁全部在容器内执行（与 CI 口径一致）。
+  # 前端依赖：镜像构建期装到 /opt/frontend-deps，entrypoint 播种到命名卷
+  # （internal 网络无外网，不能运行期 npm install；详见 react-python 同款设计）。
+  # Maven 依赖烘焙进镜像（构建期 go-offline 式预拉），/root/.m2 另挂缓存卷。
+  # 依赖变更后需 down -v 重新播种。不发布任何端口。
+  gates:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gates
+    profiles: [gates]
+    networks: [sandbox]
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+      - frontend-node-modules:/workspace/frontend/node_modules
+      - npm-cache:/root/.npm
+      - maven-cache:/root/.m2/repository
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3G }
+
+volumes:
+  npm-cache:
+  maven-cache:
+  # 前端依赖命名卷：由 gates 镜像 entrypoint 从 /opt/frontend-deps 播种
+  frontend-node-modules:

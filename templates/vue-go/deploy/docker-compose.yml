@@ -45,3 +45,33 @@ services:
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 256M }
+
+  # ---------- 门禁执行器（可选，profile: gates）----------
+  # Go + Node 双工具链，五道门禁全部在容器内执行（与 CI 口径一致，见框架 deploy/docker/verify.ps1）。
+  # 关键设计（与 react-python 同范式，实测踩坑沉淀）：
+  #   1. 沙箱网络 internal（无外网），前端依赖不能运行期 npm install——
+  #      镜像构建期装到 /opt/frontend-deps，entrypoint 在命名卷首次挂载（空）时一次性播种；
+  #   2. node_modules 用命名卷而非写进 bind mount：直接复制数百个包可能中断留下半成品
+  #      （实测只到位部分包，eslint 找不到），且无法自愈；
+  #   3. 依赖变更后需 docker compose down -v 或删除 frontend-node-modules 卷重新播种。
+  # 不发布任何端口；gates 经服务名 backend 访问 API。
+  gates:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gates
+    profiles: [gates]
+    networks: [sandbox]
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+      - frontend-node-modules:/workspace/frontend/node_modules
+      - npm-cache:/root/.npm
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+
+volumes:
+  npm-cache:
+  # 前端依赖命名卷：由 gates 镜像 entrypoint 从 /opt/frontend-deps 播种
+  frontend-node-modules:

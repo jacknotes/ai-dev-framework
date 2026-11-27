@@ -1,0 +1,77 @@
+# ============================================================================
+# dotnet 模板 — 门禁执行器镜像（gates 服务专用，见 deploy/docker-compose.yml）
+#
+# 作用：五道门禁全部在本容器内执行，与 CI 口径一致（框架 deploy/docker/verify.ps1）。
+# 工具链：.NET 8 SDK + Node（Debian bookworm 仓库，Node 18 满足 Vite 5 / ESLint 9）。
+#
+# 关键约束（与 react-python 同范式，踩坑沉淀）：
+#   1. 沙箱网络 internal（无外网）：前端依赖、NuGet 包都必须构建期烘焙，
+#      运行期由 entrypoint 播种到各自命名卷（命名卷会遮蔽镜像内目录，
+#      所以"只烘焙不播种"没用——首次挂载是空卷）。
+#   2. 播种带 .seed-complete 完成标记，之后启动秒进。
+#      依赖变更后：docker compose down -v（或删卷）重新播种。
+# ============================================================================
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates nodejs npm \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- 构建期烘焙 NuGet 包（backend 两个 csproj 都要 restore）----
+# NUGET_PACKAGES 指到镜像内目录；运行期命名卷挂 /root/.nuget/packages，由 entrypoint 播种。
+COPY backend/ /tmp/backend-src/
+ENV NUGET_PACKAGES=/opt/nuget-baked
+RUN if [ -f /tmp/backend-src/DemoApi.csproj ]; then \
+      dotnet restore /tmp/backend-src/DemoApi.csproj; \
+    fi; \
+    if [ -f /tmp/backend-src/tests/DemoApi.Tests.csproj ]; then \
+      dotnet restore /tmp/backend-src/tests/DemoApi.Tests.csproj; \
+    fi; \
+    rm -rf /tmp/backend-src
+
+# ---- 构建期预装前端依赖（有前端则装，无则跳过——复用范式）----
+COPY frontend/ /tmp/frontend-src/
+RUN if [ -f /tmp/frontend-src/package.json ]; then \
+      mkdir -p /opt/frontend-deps \
+      && cp /tmp/frontend-src/package.json /opt/frontend-deps/ \
+      && ( [ -f /tmp/frontend-src/package-lock.json ] && cp /tmp/frontend-src/package-lock.json /opt/frontend-deps/ || true ) \
+      && cd /opt/frontend-deps \
+      && ( npm ci --no-audit --no-fund || npm install --no-audit --no-fund ); \
+    fi; \
+    rm -rf /tmp/frontend-src
+
+ENV PATH="/opt/frontend-deps/node_modules/.bin:${PATH}"
+
+WORKDIR /workspace
+
+# ---- entrypoint：播种前端依赖 + NuGet 包到各自命名卷 ----
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'NM=/workspace/frontend/node_modules' \
+    'MK=$NM/.seed-complete' \
+    'if [ -d "$NM" ] && [ ! -f "$MK" ] && [ -d /opt/frontend-deps/node_modules ]; then' \
+    '  echo "[gates] 首次播种前端依赖（数百个包，稍候）..."' \
+    '  rm -rf "$NM"/* "$NM"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/frontend-deps/node_modules/. "$NM/"' \
+    '  touch "$MK"' \
+    '  echo "[gates] 依赖播种完成"' \
+    'fi' \
+    'NP=/root/.nuget/packages' \
+    'NPK=$NP/.seed-complete' \
+    'if [ -d "$NP" ] && [ ! -f "$NPK" ] && [ -d /opt/nuget-baked ]; then' \
+    '  echo "[gates] 首次播种 NuGet 包..."' \
+    '  rm -rf "$NP"/* "$NP"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/nuget-baked/. "$NP/"' \
+    '  touch "$NPK"' \
+    '  echo "[gates] NuGet 播种完成"' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/gates-entrypoint.sh \
+ && chmod +x /usr/local/bin/gates-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/gates-entrypoint.sh"]
+CMD ["sleep", "infinity"]

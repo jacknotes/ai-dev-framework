@@ -1,0 +1,54 @@
+# ============================================================================
+# jsp-servlet 模板 — 门禁执行器镜像（gates 服务专用，见 deploy/docker-compose.yml）
+#
+# 作用：五道门禁全部在本容器内执行，与 CI 口径一致（框架 deploy/docker/verify.ps1）。
+# 工具链：Maven 3.9 + Temurin 17（与 backend/Dockerfile 构建阶段同版本）。
+# 本模板无前端（页面与接口同容器同端口），故无 node_modules 相关设计。
+#
+# 关键约束（与 react-python 同范式，踩坑沉淀）：
+#   1. 沙箱网络 internal（无外网）：Maven 依赖必须构建期烘焙，运行期由
+#      entrypoint 播种到命名卷——命名卷会遮蔽镜像内 /root/.m2/repository，
+#      只烘焙不播种无效。
+#   2. 播种带 .seed-complete 完成标记，之后启动秒进。
+#      依赖变更后：docker compose down -v（或删卷）重新播种。
+#   3. dependency:go-offline + dependency:resolve-plugins 尽量烘焙全量
+#      （含插件运行时依赖），避免 internal 网络下 mvn 缺包。
+# ============================================================================
+
+FROM maven:3.9-eclipse-temurin-17
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- 构建期烘焙 Maven 依赖（含插件运行时依赖）----
+COPY backend/pom.xml /tmp/backend-src/pom.xml
+RUN cd /tmp/backend-src \
+ && mvn -q -B dependency:go-offline dependency:resolve-plugins \
+ && mkdir -p /opt/maven-repo \
+ && cp -a /root/.m2/repository/. /opt/maven-repo/ \
+ && rm -rf /tmp/backend-src
+
+WORKDIR /workspace
+
+# ---- entrypoint：播种 Maven 仓库到命名卷 ----
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'MV=/root/.m2/repository' \
+    'MVK=$MV/.seed-complete' \
+    'if [ -d "$MV" ] && [ ! -f "$MVK" ] && [ -d /opt/maven-repo ]; then' \
+    '  echo "[gates] 首次播种 Maven 仓库..."' \
+    '  rm -rf "$MV"/* "$MV"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/maven-repo/. "$MV/"' \
+    '  touch "$MVK"' \
+    '  echo "[gates] Maven 播种完成"' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/gates-entrypoint.sh \
+ && chmod +x /usr/local/bin/gates-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/gates-entrypoint.sh"]
+CMD ["sleep", "infinity"]

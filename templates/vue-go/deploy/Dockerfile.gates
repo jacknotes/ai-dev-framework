@@ -1,0 +1,53 @@
+# ============================================================================
+# vue-go 模板 — 门禁执行器镜像（gates 服务专用，见 deploy/docker-compose.yml）
+#
+# 作用：五道门禁（lint/build/test/e2e/health）全部在本容器内执行，
+#       与 CI 口径一致（见框架 deploy/docker/verify.ps1）。
+#
+# 两个关键约束（与 react-python 同范式，都是踩过的坑）：
+#   1. 沙箱网络 internal（无外网），前端依赖不能运行时 npm install，
+#      必须构建期装好烘焙进镜像，再由 entrypoint 播种到命名卷；
+#   2. node_modules 必须用命名卷而非写进 bind mount：
+#      直接复制数百个包可能中断留下半成品（实测 eslint 找不到），且无法自愈。
+#      命名卷首次挂载（空）时播种一次，写 .seed-complete，之后启动秒进。
+#      依赖变更后：docker compose down -v（或删卷）重新播种。
+#
+# 注意：golang 镜像的 Go 在 /usr/local/go/bin，仅存在于镜像 ENV PATH；
+#       登录 shell（bash -l）会加载 /etc/profile 把 PATH 重置掉。
+#       verify.ps1 必须用非登录 shell（bash -c）执行命令；ENV PATH 是兜底保险。
+# ============================================================================
+
+FROM golang:1.22-alpine
+
+RUN apk add --no-cache bash curl ca-certificates nodejs npm
+
+# ---- 构建期预装前端依赖，落到 /opt/frontend-deps ----
+WORKDIR /opt/frontend-deps
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+# PATH：预装 .bin 放最前——npm run 把本地 node_modules/.bin 排在 PATH 最前，
+# 命名卷已播种时用本地依赖，未播种/缺失时回退到预装目录，两个世界都通。
+ENV PATH="/opt/frontend-deps/node_modules/.bin:/usr/local/go/bin:${PATH}"
+
+WORKDIR /workspace
+
+# ---- entrypoint：命名卷首次挂载（空）时一次性播种前端依赖 ----
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'NM=/workspace/frontend/node_modules' \
+    'MK=$NM/.seed-complete' \
+    'if [ -d "$NM" ] && [ ! -f "$MK" ] && [ -d /opt/frontend-deps/node_modules ]; then' \
+    '  echo "[gates] 首次播种前端依赖（数百个包，稍候）..."' \
+    '  rm -rf "$NM"/* "$NM"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/frontend-deps/node_modules/. "$NM/"' \
+    '  touch "$MK"' \
+    '  echo "[gates] 依赖播种完成"' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/gates-entrypoint.sh \
+ && chmod +x /usr/local/bin/gates-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/gates-entrypoint.sh"]
+CMD ["sleep", "infinity"]

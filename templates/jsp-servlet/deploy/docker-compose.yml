@@ -75,3 +75,25 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+
+  # ---------- 门禁执行器（可选，profile: gates）----------
+  # Maven 3.9 + Temurin 17 工具链，五道门禁全部在容器内执行（与 CI 口径一致）。
+  # 本模板无前端（页面与接口同容器），故无 node_modules 播种卷。
+  # Maven 依赖烘焙进镜像，/root/.m2 另挂缓存卷。不发布任何端口。
+  gates:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gates
+    profiles: [gates]
+    networks: [sandbox]
+    working_dir: /workspace
+    volumes:
+      - ../:/workspace
+      - maven-cache:/root/.m2/repository
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3G }
+
+volumes:
+  maven-cache:

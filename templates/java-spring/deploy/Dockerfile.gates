@@ -1,0 +1,80 @@
+# ============================================================================
+# java-spring 模板 — 门禁执行器镜像（gates 服务专用，见 deploy/docker-compose.yml）
+#
+# 作用：五道门禁全部在本容器内执行，与 CI 口径一致（框架 deploy/docker/verify.ps1）。
+# 工具链：Maven 3.9 + Temurin 21 + Node 20（NodeSource；Ubuntu jammy 仓库的
+#         nodejs 12 跑不动 Vite 5，必须显式装 20.x）。
+#
+# 关键约束（与 react-python 同范式，踩坑沉淀）：
+#   1. 沙箱网络 internal（无外网）：前端依赖、Maven 依赖都必须构建期烘焙，
+#      运行期由 entrypoint 播种到命名卷——命名卷会遮蔽镜像内目录
+#      （/root/.m2/repository、node_modules 均如此），只烘焙不播种无效。
+#   2. 播种带 .seed-complete 完成标记，之后启动秒进。
+#      依赖变更后：docker compose down -v（或删卷）重新播种。
+#   3. Maven 侧用 dependency:go-offline + dependency:resolve-plugins 尽量
+#      烘焙全量（含插件运行时依赖），避免 internal 网络下 mvn test 缺包。
+# ============================================================================
+
+FROM maven:3.9-eclipse-temurin-21
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- 构建期烘焙 Maven 依赖（含插件运行时依赖）----
+# 先拷 pom.xml 单独跑 go-offline，利用层缓存；烘焙完搬到 /opt/maven-repo，
+# 因为运行期 /root/.m2/repository 会被命名卷遮蔽。
+COPY backend/pom.xml /tmp/backend-src/pom.xml
+RUN cd /tmp/backend-src \
+ && mvn -q -B dependency:go-offline dependency:resolve-plugins \
+ && mkdir -p /opt/maven-repo \
+ && cp -a /root/.m2/repository/. /opt/maven-repo/ \
+ && rm -rf /tmp/backend-src
+
+# ---- 构建期预装前端依赖（模板含 frontend 则装，无则跳过）----
+COPY frontend/ /tmp/frontend-src/
+RUN if [ -f /tmp/frontend-src/package.json ]; then \
+      mkdir -p /opt/frontend-deps \
+      && cp /tmp/frontend-src/package.json /opt/frontend-deps/ \
+      && ( [ -f /tmp/frontend-src/package-lock.json ] && cp /tmp/frontend-src/package-lock.json /opt/frontend-deps/ || true ) \
+      && cd /opt/frontend-deps \
+      && ( npm ci --no-audit --no-fund || npm install --no-audit --no-fund ); \
+    fi; \
+    rm -rf /tmp/frontend-src
+
+ENV PATH="/opt/frontend-deps/node_modules/.bin:${PATH}"
+
+WORKDIR /workspace
+
+# ---- entrypoint：播种前端依赖 + Maven 仓库到各自命名卷 ----
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'NM=/workspace/frontend/node_modules' \
+    'MK=$NM/.seed-complete' \
+    'if [ -d "$NM" ] && [ ! -f "$MK" ] && [ -d /opt/frontend-deps/node_modules ]; then' \
+    '  echo "[gates] 首次播种前端依赖（数百个包，稍候）..."' \
+    '  rm -rf "$NM"/* "$NM"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/frontend-deps/node_modules/. "$NM/"' \
+    '  touch "$MK"' \
+    '  echo "[gates] 依赖播种完成"' \
+    'fi' \
+    'MV=/root/.m2/repository' \
+    'MVK=$MV/.seed-complete' \
+    'if [ -d "$MV" ] && [ ! -f "$MVK" ] && [ -d /opt/maven-repo ]; then' \
+    '  echo "[gates] 首次播种 Maven 仓库..."' \
+    '  rm -rf "$MV"/* "$MV"/.[!.]* 2>/dev/null || true' \
+    '  cp -a /opt/maven-repo/. "$MV/"' \
+    '  touch "$MVK"' \
+    '  echo "[gates] Maven 播种完成"' \
+    'fi' \
+    'exec "$@"' \
+    > /usr/local/bin/gates-entrypoint.sh \
+ && chmod +x /usr/local/bin/gates-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/gates-entrypoint.sh"]
+CMD ["sleep", "infinity"]
