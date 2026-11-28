@@ -44,6 +44,11 @@
 //   - feature/full 档按任务迭代执行：单会话上下文有界，复杂功能不再"越写越糊"；
 //   - 关键产出 schema 化：评审结论不再靠 /驳回/ 正则猜；
 //   - 注入瘦身：开发智能体只拿契约+任务，不拿全文需求/架构/改动摘要串珠。
+//
+// v2.1（基线实测后的护栏，见 docs/03 §8 基线实测）：
+//   - 退回修复会话加【修复预算】：最多 15 次工具调用、禁止环境自举（装依赖/起容器）；
+//   - e2e/health 失败若根因是环境未就绪 → 直接暂停等人（docs/03 §6.3），
+//     实测教训：e2e 修复智能体面对"staging 未启动"烧了 91 请求/7.9M tokens 尝试自举环境。
 // ============================================================
 
 // ---------- 可调参数 ----------
@@ -254,6 +259,8 @@ async function codingGateRound(stageLabel, repairContext) {
     log(`[门禁] ${stageLabel} 第 ${attempts} 轮失败 ${bad.length} 项，聚合修复后重跑`);
     await agent(
       `${repairContext}\n\n上一轮门禁失败，必须修复根因，不得绕过门禁、不得放宽阈值、不得删除测试用例。
+
+【修复预算（硬约束）】最多 15 次工具调用，只做修复失败清单所需的最小操作；绝不自行安装依赖、启动容器来"自举环境"——若失败根因是环境未就绪（依赖缺失/服务未启动），立即停止并在返回摘要写明"环境未就绪，需人工执行 deploy/install.ps1"，不要继续尝试。
 
 失败清单（全部失败项，修完每一项）：
 ${failLines}
@@ -531,9 +538,28 @@ const e2e = await runGates(["scripts/e2e.sh"], "验收门禁");
 const gE2E = e2e[0];
 if (!gE2E.ok) {
   // e2e 失败退回：先让测试智能体按失败清单修一轮（绝不改断言变绿），再执行一次
+  // 修复预算 + 环境护栏：e2e 失败的典型根因是"staging 未启动"（本次实测 91 请求/7.9M tokens 的教训），
+  // 修复智能体不允许自举环境——那属于 deploy/install.ps1 的人类确认流程，不属于修复职责。
   const failLines = gE2E.failures.join("\n");
+  const envFail = /未设置 TEST_BASE_URL|无法确定被测目标|connection refused|ECONNREFUSED|健康检查/i.test(failLines + gE2E.summary);
+  if (envFail) {
+    return {
+      ok: false,
+      at: "验收门禁",
+      reason: `环境未就绪（${gE2E.summary}，exit=${gE2E.exitCode}）——按 docs/03 §6.3 暂停等人，不自动自举环境`,
+      failures: gE2E.failures,
+      nextAction: "人工执行 deploy/install.ps1（或确认 staging 地址后设置 TEST_BASE_URL 重跑 e2e 门禁）",
+    };
+  }
   await agent(
-    `${ROLE.qa}\n\n上一轮 e2e 失败，必须修复根因：修复用例脚本的环境/选择器/等待问题，或让用例真实暴露缺陷（绝不修改断言让其变绿）。\n\n失败清单：\n${failLines}\n\n失败摘要：${gE2E.summary}（exit=${gE2E.exitCode}）`,
+    `${ROLE.qa}\n\n上一轮 e2e 失败，必须修复根因：修复用例脚本的环境/选择器/等待问题，或让用例真实暴露缺陷（绝不修改断言让其变绿）。
+
+【修复预算（硬约束）】最多 15 次工具调用，只修失败清单所需的最小操作；绝不自行安装依赖、启动容器来"自举环境"——环境未就绪不属于修复职责。
+
+失败清单：
+${failLines}
+
+失败摘要：${gE2E.summary}（exit=${gE2E.exitCode}）`,
     Object.assign({ label: "e2e修复" }, optsFor())
   );
   const retry = await runGates(["scripts/e2e.sh"], "验收门禁重跑");
@@ -576,12 +602,31 @@ if (TEAM.deploy) {
   );
   log(`部署：${deploy?.slice(0, 200) || "（无输出）"}`);
 
-  // —— 部署门禁：真实健康检查（聚合执行器跑单脚本；失败携清单退回运维修复一轮）——
+  // —— 部署门禁：真实健康检查（聚合执行器跑单脚本；环境未就绪直接暂停等人，不自举）——
   phase("部署门禁");
   let h = (await runGates(["scripts/health.sh"], "部署门禁"))[0];
   if (!h.ok) {
+    const envFail = /connection refused|ECONNREFUSED|未就绪|无法连接|Failed to connect/i.test(h.failures.join(" ") + h.summary);
+    if (envFail) {
+      return {
+        ok: false,
+        at: "部署门禁",
+        reason: `环境未就绪（${h.summary}，exit=${h.exitCode}）——按 docs/03 §6.3 暂停等人`,
+        failures: h.failures,
+        nextAction: "人工执行 deploy/install.ps1 或检查服务状态后重跑部署门禁",
+      };
+    }
     await agent(
-      `${ROLE.devops}\n\n上一轮健康检查失败。修复启动/健康检查问题，不得放宽探针、不得跳过迁移校验。\n\n失败清单：\n${h.failures.join("\n")}\n\n失败摘要：${h.summary}（exit=${h.exitCode}）\n\n修复后返回部署状态。`,
+      `${ROLE.devops}\n\n上一轮健康检查失败。修复启动/健康检查问题，不得放宽探针、不得跳过迁移校验。
+
+【修复预算（硬约束）】最多 15 次工具调用；绝不自行启动整套环境来"让健康检查变绿"。
+
+失败清单：
+${h.failures.join("\n")}
+
+失败摘要：${h.summary}（exit=${h.exitCode}）
+
+修复后返回部署状态。`,
       Object.assign({ label: "部署修复" }, optsFor())
     );
     h = (await runGates(["scripts/health.sh"], "部署门禁重跑"))[0];
