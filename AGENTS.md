@@ -104,6 +104,9 @@ powershell -ExecutionPolicy Bypass -File tools\new-project.ps1 -Name 我的项�
 **测试环境一键安装**：读到 `deploy/README.md` 后先向用户确认，同意后再执行
 `powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1`（探测工具链 → 选后端 → 装资源 → 五道门禁）。
 
+**流水线运行位置（token 成本硬规则）**：AI 多智能体流水线（`pipeline/pipeline.workflow.js`）必须在**新项目目录打开的会话**中运行（`projectRoot` 用 `"."`）。
+DSH 会给每个子智能体注入"会话所在目录"的 AGENTS.md 指令链——在框架仓库里运行，全部子智能体都会背框架级指令，既贵又与项目无关。
+
 **可访问性约定**：所有服务端口发布在 **127.0.0.1**（前端 13000 / 后端 18080 / DB 15432 / Mock 18081 / ZAP 18090，实际以各模板 compose 为准）。隔离防的是"生产与局域网"，不是"本机用户"——`internal: true` 已移除（实测它会让 ports 发布失效，本机用户反而无法访问）。
 
 ---

@@ -96,7 +96,64 @@
 
 ---
 
-## 7. 常见问题
+## 7. 环境操作手册（按需查阅，不必背进对话）
+
+> AGENTS.md 只保留一句话版；具体命令和端口都在这里。
+
+**一键安装（推荐，先向用户确认再执行）**：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\install.ps1
+```
+
+自动探测工具链、选择后端、装资源、启动、跑五道门禁，退出码即结论。详见 `deploy/README.md`。
+
+**分步执行（优先 Docker，真沙箱）**：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\docker\setup.ps1    # 首次：配镜像加速器 + 校验 WSL2
+powershell -ExecutionPolicy Bypass -File deploy\docker\up.ps1       # 启动
+powershell -ExecutionPolicy Bypass -File deploy\docker\verify.ps1   # 容器内跑五道门禁
+powershell -ExecutionPolicy Bypass -File deploy\docker\down.ps1     # 销毁
+```
+
+**没有 Docker 时用本机沙箱**（只绑 127.0.0.1，秒级启动）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\local\setup.ps1     # 一次性准备
+powershell -ExecutionPolicy Bypass -File deploy\local\up.ps1        # 启动
+powershell -ExecutionPolicy Bypass -File deploy\local\verify.ps1    # 跑五道门禁，退出码即结论
+powershell -ExecutionPolicy Bypass -File deploy\local\down.ps1      # 销毁，回到"从未存在"
+```
+
+> `powershell -ExecutionPolicy Bypass -File` 是 Windows 自带 PowerShell 5.1 可用的写法；装了 PowerShell 7 可简写为 `pwsh -File`。
+
+**服务端口表（模板默认值，实际以 `deploy/docker-compose.yml` 为准）**：
+
+| 服务 | 本机地址 | 说明 |
+|---|---|---|
+| 前端 | http://127.0.0.1:13000 | 浏览器直接打开 |
+| 后端 API | http://127.0.0.1:18080 | curl /health 验证 |
+| 数据库/中间件/Mock | 见 compose 注释 | psql/客户端直连 |
+
+---
+
+## 8. 换技术栈与五入口实现参考
+
+**只重写 `scripts/` 下 5 个脚本**，编排器与 CI 零改动。各栈参考实现：
+
+| 栈 | lint | build | test |
+|---|---|---|---|
+| React/Vue + Vite | `npm run lint` | `npm run build` | `npm test` |
+| FastAPI | `ruff check .` | `python -m compileall app` | `pytest --cov` |
+| Go | `go vet ./...` | `go build ./...` | `go test ./... -cover` |
+| Java/Maven | `mvn -B checkstyle:check` | `mvn -B package -DskipTests` | `mvn -B test` |
+
+五入口脚本的硬性约束（幂等、不依赖交互、不吞退出码、失败输出可读）见框架仓库 `docs/04-门禁与命令契约.md` §2。
+
+---
+
+## 9. 常见问题
 
 **Q：AI 说门禁失败，我该做什么？**
 A：让它把 `scripts/test.sh` 的末 40 行贴给你。那是真实报错，不是它的猜测。
